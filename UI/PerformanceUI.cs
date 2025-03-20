@@ -9,7 +9,7 @@ namespace cmetro25.UI
 {
     public class PerformanceUI(SpriteFont font)
     {
-        public void Draw(SpriteBatch spriteBatch, int fps, int updatesPerSecond, MapCamera camera, List<District> districts, List<Road> roads, int loadedObjects)
+        public void Draw(SpriteBatch spriteBatch, int fps, int updatesPerSecond, MapCamera camera, List<District> districts, List<Road> roads, int loadedObjects, int tileZoomLevel)
         {
             var mouseState = Mouse.GetState();
             var mouseScreenPos = new Vector2(mouseState.X, mouseState.Y);
@@ -22,6 +22,7 @@ namespace cmetro25.UI
                               $"Mouse (World): {mouseWorldPos.X:F2}, {mouseWorldPos.Y:F2}\n" +
                               $"Camera: {camera.Position.X:F2}, {camera.Position.Y:F2}\n" +
                               $"Zoom: {camera.Zoom:F2}\n" +
+                              $"TileZoomLevel: {tileZoomLevel}\n" +
                               $"Visible: X:{visibleBounds.X:F2} Y:{visibleBounds.Y:F2} W:{visibleBounds.Width:F2} H:{visibleBounds.Height:F2}\n" +
                               $"Districts: {districts.Count}\n" +
                               $"Roads: {roads.Count}\n" +

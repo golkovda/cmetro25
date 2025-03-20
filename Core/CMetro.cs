@@ -32,6 +32,8 @@ namespace cmetro25.Core
         private RoadRenderer _roadRenderer;
         private PerformanceUI _performanceUI;
         private RenderTarget2D _mapRenderTarget;
+        private TileManager _tileManager;
+
         private bool _mapIsReady = false;
 
         // Kamera
@@ -52,9 +54,9 @@ namespace cmetro25.Core
         private const double ZoomDebounceThreshold = 0.1; // in Sekunden
 
         // Konstanten
-        private const float _baseMaxDistance = 2f;
+        private const float _baseMaxDistance = 0.5f;
         private const float _baseOverlapFactor = 0.3f;
-        private const int _curvesegments = 6;
+        private const int _curvesegments = 12;
         private const float MinTextScale = 0.1f;
         private const float MaxTextScale = 1.8f;
         private const float BaseZoom = 1.0f;
@@ -86,7 +88,15 @@ namespace cmetro25.Core
             _roadService = new RoadService(_roads, _mapLoader);
             _lastZoom = _camera.Zoom;
 
+
             base.Initialize();
+        }
+
+        private int ComputeTileZoomLevel(float zoom)
+        {
+            // Mit einem Faktor (z.B. 1.2) wird die Diskretisierung früher erfolgen:
+            int level = (int)Math.Ceiling(Math.Log(zoom*1.2, 2));
+            return Math.Max(0, level);
         }
 
         protected override void LoadContent()
@@ -102,7 +112,10 @@ namespace cmetro25.Core
             _roadRenderer = new RoadRenderer(_pixelTexture, _baseOverlapFactor, _baseMaxDistance, true, _curvesegments);
             _performanceUI = new PerformanceUI(_font);
 
-            LoadMapRenderTarget();
+            _tileManager = new TileManager(GraphicsDevice, _districts, _roads, _mapLoader, _districtRenderer, _roadRenderer, 4096);
+
+
+            //LoadMapRenderTarget();
         }
 
         protected override void UnloadContent()
@@ -186,8 +199,8 @@ namespace cmetro25.Core
 
         protected override void Draw(GameTime gameTime)
         {
-            _frameCounter++;
-            GraphicsDevice.Clear(_mapBackgroundColor);
+            //_frameCounter++;
+            //GraphicsDevice.Clear(_mapBackgroundColor);
 
             //// Zeichne Distrikte und Labels
             //_districtRenderer.Draw(_spriteBatch, _districts, _camera);
@@ -205,28 +218,44 @@ namespace cmetro25.Core
 
             //// Zeichne Performance-Menü (UI)
             //if (_showPerformanceMenu)
-            //    _performanceUI.Draw(_spriteBatch, _fps, _updatesPerSecond, _camera, _districts, _roads,_roadRenderer.GetVisibleLineCount());
+            //    _performanceUI.Draw(_spriteBatch, _fps, _updatesPerSecond, _camera, _districts, _roads, _roadRenderer.GetVisibleLineCount());
 
             //base.Draw(gameTime);
+            //--------------------------
+            //if (!_mapIsReady)
+            //{
+            //    // Ladebildschirm, solange das RenderTarget noch nicht erstellt ist.
+            //    _spriteBatch.Begin();
+            //    _spriteBatch.DrawString(_font, "Loading Map...", new Vector2(100, 100), Color.White);
+            //    _spriteBatch.End();
+            //}
+            //else
+            //{
+            //    // Zeichne das fertige RenderTarget und transformiere es mit der Kamera.
+            //    _spriteBatch.Begin(transformMatrix: _camera.TransformMatrix);
+            //    _spriteBatch.Draw(_mapRenderTarget, Vector2.Zero, Color.White);
+            //    _spriteBatch.End();
 
-            if (!_mapIsReady)
-            {
-                // Ladebildschirm, solange das RenderTarget noch nicht erstellt ist.
-                _spriteBatch.Begin();
-                _spriteBatch.DrawString(_font, "Loading Map...", new Vector2(100, 100), Color.White);
-                _spriteBatch.End();
-            }
-            else
-            {
-                // Zeichne das fertige RenderTarget und transformiere es mit der Kamera.
-                _spriteBatch.Begin(transformMatrix: _camera.TransformMatrix);
-                _spriteBatch.Draw(_mapRenderTarget, Vector2.Zero, Color.White);
-                _spriteBatch.End();
+            //    // Optional: UI und Performance-Anzeigen
+            //    if (_showPerformanceMenu)
+            //        _performanceUI.Draw(_spriteBatch, _fps, _updatesPerSecond, _camera, _districts, _roads, _roadRenderer.GetVisibleLineCount());
+            //}
 
-                // Optional: UI und Performance-Anzeigen
-                if (_showPerformanceMenu)
-                    _performanceUI.Draw(_spriteBatch, _fps, _updatesPerSecond, _camera, _districts, _roads, _roadRenderer.GetVisibleLineCount());
-            }
+            //base.Draw(gameTime);
+            //-----------------------------
+            GraphicsDevice.Clear(_mapBackgroundColor);
+
+            _spriteBatch.Begin(transformMatrix: _camera.TransformMatrix, samplerState: SamplerState.AnisotropicClamp);
+
+            // Bestimme den diskreten Zoomlevel für die Tiles:
+            int tileZoomLevel = ComputeTileZoomLevel(_camera.Zoom);
+            _tileManager.DrawTiles(_spriteBatch, _camera, tileZoomLevel);
+
+            _spriteBatch.End();
+
+            // Zeichne zusätzlich das Performance-UI oder andere interaktive Elemente.
+            if (_showPerformanceMenu)
+                _performanceUI.Draw(_spriteBatch, _fps, _updatesPerSecond, _camera, _districts, _roads, _roadRenderer.GetVisibleLineCount(), ComputeTileZoomLevel(_camera.Zoom));
 
             base.Draw(gameTime);
         }

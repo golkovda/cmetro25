@@ -11,12 +11,12 @@ namespace cmetro25.Views
     {
         public void Draw(SpriteBatch spriteBatch, List<District> districts, MapCamera camera)
         {
-            spriteBatch.Begin(transformMatrix: camera.TransformMatrix);
+            //spriteBatch.Begin(transformMatrix: camera.TransformMatrix);
             foreach (var polygon in districts.SelectMany(district => district.Polygons))
             {
                 DrawPolygon(spriteBatch, polygon, borderColor);
             }
-            spriteBatch.End();
+            //spriteBatch.End();
         }
 
         public void DrawLabels(SpriteBatch spriteBatch, List<District> districts, MapCamera camera)
