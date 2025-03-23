@@ -39,6 +39,7 @@ namespace cmetro25.Utils
         {
             float minX = float.MaxValue, minY = float.MaxValue;
             float maxX = float.MinValue, maxY = float.MinValue;
+            // Durchlaufe Bezirke:
             foreach (var district in _districts)
             {
                 foreach (var poly in district.Polygons)
@@ -52,6 +53,7 @@ namespace cmetro25.Utils
                     }
                 }
             }
+            // Durchlaufe Straßen:
             foreach (var road in _roads)
             {
                 foreach (var line in road.Lines)
@@ -65,8 +67,27 @@ namespace cmetro25.Utils
                     }
                 }
             }
-            return new RectangleF(minX, minY, maxX - minX, maxY - minY);
+            // Ursprüngliche Breite und Höhe:
+            float width = maxX - minX;
+            float height = maxY - minY;
+            // Erweitere die kleinere Dimension, sodass das Raster quadratisch wird:
+            if (width > height)
+            {
+                // Erhöhe die Höhe – zum Beispiel, indem du minY weiter nach unten verschiebst.
+                float diff = width - height;
+                minY -= diff * 0.5f;
+                height = width;
+            }
+            else if (height > width)
+            {
+                float diff = height - width;
+                minX -= diff * 0.5f;
+                width = height;
+            }
+            // Optional: Du kannst hier noch eine Paddung einbauen, um Rundungsfehler abzufedern.
+            return new RectangleF(minX, minY, width, height);
         }
+
 
         // Liefert ein RenderTarget (Tile) für den angegebenen Zoom und Tile-Koordinaten.
         public RenderTarget2D GetTile(int zoom, int tileX, int tileY)
@@ -121,9 +142,9 @@ namespace cmetro25.Utils
             float tileWorldHeight = _mapBounds.Height / numTiles;
 
             int minTileX = Math.Max(0, (int)Math.Floor((visibleWorld.X - _mapBounds.X) / tileWorldWidth));
-            int maxTileX = Math.Min(numTiles - 1, (int)Math.Floor((visibleWorld.X + visibleWorld.Width - _mapBounds.X) / tileWorldWidth));
+            int maxTileX = Math.Min(numTiles - 1, (int)Math.Ceiling((visibleWorld.X + visibleWorld.Width - _mapBounds.X) / tileWorldWidth) - 1);
             int minTileY = Math.Max(0, (int)Math.Floor((visibleWorld.Y - _mapBounds.Y) / tileWorldHeight));
-            int maxTileY = Math.Min(numTiles - 1, (int)Math.Floor((visibleWorld.Y + visibleWorld.Height - _mapBounds.Y) / tileWorldHeight));
+            int maxTileY = Math.Min(numTiles - 1, (int)Math.Ceiling((visibleWorld.Y + visibleWorld.Height - _mapBounds.Y) / tileWorldHeight) - 1);
 
             for (int ty = minTileY; ty <= maxTileY; ty++)
             {
