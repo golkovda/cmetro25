@@ -7,9 +7,17 @@ using cmetro25.Views;
 
 namespace cmetro25.UI
 {
-    public class PerformanceUI(SpriteFont font)
+    public class PerformanceUI
     {
-        public void Draw(SpriteBatch spriteBatch, int fps, int updatesPerSecond, MapCamera camera, List<District> districts, List<Road> roads, int loadedObjects, int tileZoomLevel)
+        private readonly SpriteFont _font;
+
+        public PerformanceUI(SpriteFont font)
+        {
+            _font = font;
+        }
+
+        // NEU: Parameter für queueSize hinzugefügt
+        public void Draw(SpriteBatch spriteBatch, int fps, int updatesPerSecond, MapCamera camera, List<District> districts, List<Road> roads, int loadedObjects, int tileZoomLevel, int queueSize)
         {
             var mouseState = Mouse.GetState();
             var mouseScreenPos = new Vector2(mouseState.X, mouseState.Y);
@@ -23,13 +31,16 @@ namespace cmetro25.UI
                               $"Camera: {camera.Position.X:F2}, {camera.Position.Y:F2}\n" +
                               $"Zoom: {camera.Zoom:F2}\n" +
                               $"TileZoomLevel: {tileZoomLevel}\n" +
-                              $"Visible: X:{visibleBounds.X:F2} Y:{visibleBounds.Y:F2} W:{visibleBounds.Width:F2} H:{visibleBounds.Height:F2}\n" +
-                              $"Districts: {districts.Count}\n" +
-                              $"Roads: {roads.Count}\n" +
-                              $"Geladene Objekte: {loadedObjects}";
+                              // $"Visible: X:{visibleBounds.X:F2} Y:{visibleBounds.Y:F2} W:{visibleBounds.Width:F2} H:{visibleBounds.Height:F2}\n" + // Weniger wichtig jetzt
+                              $"Districts: {districts?.Count ?? 0}\n" + // Null-Check
+                              $"Roads: {roads?.Count ?? 0}\n" + // Null-Check
+                              $"Drawn Road Segs: {loadedObjects}\n" + // Umbenannt für Klarheit
+                              $"Tile Gen Queue: {queueSize}"; // NEU
 
             spriteBatch.Begin();
-            spriteBatch.DrawString(font, perfText, new Vector2(10, 10), Color.Yellow);
+            // Zeichne mit leichtem Schatten für bessere Lesbarkeit
+            spriteBatch.DrawString(_font, perfText, new Vector2(11, 11), Color.Black * 0.8f);
+            spriteBatch.DrawString(_font, perfText, new Vector2(10, 10), Color.Yellow);
             spriteBatch.End();
         }
     }

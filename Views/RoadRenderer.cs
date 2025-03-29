@@ -2,145 +2,195 @@
 using Microsoft.Xna.Framework.Graphics;
 using System;
 using System.Collections.Generic;
+using System.Linq; // Für Any()
 using cmetro25.Models;
 using MonoGame.Extended;
+using cmetro25.Views; // Für MapCamera
 
 namespace cmetro25.Views
 {
-    public class RoadRenderer(Texture2D pixelTexture, float baseOverlapFactor, float baseMaxDistance = 1f, bool useSmoothing = true, int curvesegments = 10)
+    public class RoadRenderer
     {
+        private readonly Texture2D _pixelTexture;
+        private readonly float _baseOverlapFactor;
+        private readonly bool _useSmoothing;
+        private readonly int _curveSegments;
+        private int _visibleLineSegmentsDrawn = 0; // Zählt gezeichnete Segmente pro Frame
 
-        private int _visibleItemCount = 0;
-        public void Draw(SpriteBatch spriteBatch, List<Road> roads, RectangleF visibleBounds, MapCamera camera)
+        // baseMaxDistance wird hier nicht direkt verwendet, kommt über Road.Lines
+        public RoadRenderer(Texture2D pixelTexture, float baseOverlapFactor, float baseMaxDistance = 1f, bool useSmoothing = true, int curveSegments = 10)
         {
-            int ic = 0;
-            foreach (Road road in roads)
-            {
-                // Synchronisiere den Cache: Falls die Anzahl der cached Spline-Segmente nicht der aktuellen Anzahl entspricht,
-                // lösche den Cache und berechne alle glatten Linien neu.
-                if (road.CachedSmoothedLines.Count != road.Lines.Count)
-                {
-                    road.CachedSmoothedLines.Clear();
-                    for (int j = 0; j < road.Lines.Count; j++)
-                    {
-                        List<Vector2> smoothed = GenerateCatmullRomSpline(road.Lines[j], curvesegments);
-                        road.CachedSmoothedLines.Add(smoothed);
-                    }
-                    road.CachedSmoothZoom = camera.Zoom;
-                }
-                //foreach (var linecollection in road.Lines)
-                //    ic += linecollection.Count;
+            _pixelTexture = pixelTexture;
+            _baseOverlapFactor = baseOverlapFactor; // Wird in DrawPolyline verwendet
+            _useSmoothing = useSmoothing;
+            _curveSegments = curveSegments;
+        }
 
+
+        // OPTIMIERUNG: Nimmt jetzt gefilterte Liste von Straßen entgegen
+        public void Draw(SpriteBatch spriteBatch, List<Road> roadsToDraw, RectangleF visibleBounds, MapCamera camera)
+        {
+            _visibleLineSegmentsDrawn = 0; // Reset counter for this frame
+            float currentZoom = camera.Zoom; // Zoom einmal abrufen
+
+            // Annahme: spriteBatch.Begin wurde bereits außerhalb aufgerufen (von TileManager oder CMetro.Draw)
+
+            foreach (Road road in roadsToDraw) // Iteriere nur über die potenziell sichtbaren Straßen
+            {
+                // Caching für geglättete Linien (wenn Smoothing aktiv ist)
+                if (_useSmoothing)
+                {
+                    // Prüfe, ob Cache für diese Straße initialisiert werden muss oder veraltet ist
+                    bool needsCacheUpdate = road.CachedSmoothedLines == null ||
+                                            road.CachedSmoothedLines.Count != road.Lines.Count ||
+                                            Math.Abs(road.CachedSmoothZoom - currentZoom) > 0.1f; // Zoom-Schwellenwert
+
+                    if (needsCacheUpdate)
+                    {
+                        road.CachedSmoothedLines ??= new List<List<Vector2>>(road.Lines.Count); // Initialisiere, falls null
+                        // Fülle oder aktualisiere den Cache
+                        while (road.CachedSmoothedLines.Count < road.Lines.Count) road.CachedSmoothedLines.Add(null); // Fülle Liste auf
+                        for (int j = 0; j < road.Lines.Count; j++)
+                        {
+                            // Nur neu berechnen, wenn nötig (oder wenn Liste zu kurz war)
+                            if (road.CachedSmoothedLines[j] == null || needsCacheUpdate)
+                            {
+                                if (road.Lines[j] != null && road.Lines[j].Count >= 2) // Nur für gültige Linien
+                                {
+                                    road.CachedSmoothedLines[j] = GenerateCatmullRomSpline(road.Lines[j], _curveSegments);
+                                }
+                                else
+                                {
+                                    road.CachedSmoothedLines[j] = new List<Vector2>(); // Leere Liste für ungültige Linien
+                                }
+                            }
+                        }
+                        road.CachedSmoothZoom = currentZoom; // Update Cache-Zoom
+                    }
+                }
+
+
+                // Zeichne die Liniensegmente der Straße
                 for (int i = 0; i < road.Lines.Count; i++)
                 {
                     var line = road.Lines[i];
-                    RectangleF lineBox = road.BoundingBoxes[i];
-                    bool lineVisible = visibleBounds.Intersects(lineBox) || IsPolylineVisible(line, visibleBounds);
-                    if (!lineVisible)
-                        continue;
+                    if (line == null || line.Count < 2) continue; // Überspringe ungültige Liniensegmente
 
-                    ic += i;
+                    // OPTIONAL: Zusätzliche Sichtbarkeitsprüfung pro Liniensegment (obwohl TileManager/Quadtree schon filtert)
+                    // RectangleF lineBox = road.BoundingBoxes[i]; // BoundingBox des Segments
+                    // if (!visibleBounds.Intersects(lineBox)) continue; // Überspringen, wenn Box nicht sichtbar
 
-                    float roadWidth;
-                    Color roadColor;
-                    switch (road.RoadType)
+                    // Bestimme Farbe und Breite basierend auf Straßentyp
+                    GetRoadStyle(road.RoadType, currentZoom, out float roadWidth, out Color roadColor);
+
+
+                    if (_useSmoothing && road.CachedSmoothedLines != null && i < road.CachedSmoothedLines.Count && road.CachedSmoothedLines[i] != null)
                     {
-                        case "motorway":
-                            roadWidth = 5f;
-                            roadColor = Color.DarkOrange;
-                            break;
-                        case "primary":
-                        case "trunk":
-                            roadWidth = 4f;
-                            roadColor = Color.DarkGoldenrod;
-                            break;
-                        case "secondary":
-                        case "tertiary":
-                            roadWidth = 2f;
-                            roadColor = Color.LightGray;
-                            break;
-                        default:
-                            roadWidth = 2f;
-                            roadColor = Color.Gray;
-                            break;
-                    }
-
-                    if (useSmoothing)
-                    {
-                        // Falls der Zoom sich signifikant geändert hat, aktualisiere den Cache für dieses Segment.
-                        if (Math.Abs(road.CachedSmoothZoom - camera.Zoom) > 0.1f)
-                        {
-                            List<Vector2> smoothed = GenerateCatmullRomSpline(line, curvesegments);
-                            road.CachedSmoothedLines[i] = smoothed;
-                            road.CachedSmoothZoom = camera.Zoom;
-                        }
-
+                        // Zeichne geglättete Linie aus dem Cache
                         List<Vector2> smoothedLine = road.CachedSmoothedLines[i];
-                        DrawSmoothedPolyline(spriteBatch, smoothedLine, roadColor, roadWidth, camera);
+                        if (smoothedLine.Count >= 2)
+                        {
+                            DrawSmoothedPolyline(spriteBatch, smoothedLine, roadColor, roadWidth, currentZoom);
+                            _visibleLineSegmentsDrawn += smoothedLine.Count - 1;
+                        }
                     }
                     else
-                        DrawPolyline(spriteBatch, line, roadColor, roadWidth, baseOverlapFactor, camera);
+                    {
+                        // Zeichne normale (nicht geglättete) Linie
+                        DrawPolyline(spriteBatch, line, roadColor, roadWidth, _baseOverlapFactor, currentZoom);
+                        _visibleLineSegmentsDrawn += line.Count - 1;
+                    }
                 }
             }
-
-            _visibleItemCount = ic;
+            // Annahme: spriteBatch.End wird außerhalb aufgerufen
         }
 
-        /// <summary>
-        /// Zeichnet eine glatte Kurve basierend auf einem Catmull-Rom-Spline.
-        /// </summary>
-        private void DrawSmoothedPolyline(SpriteBatch spriteBatch, List<Vector2> polyline, Color color, float thickness, MapCamera camera)
+        // Hilfsmethode zum Abrufen von Stil-Informationen
+        private void GetRoadStyle(string roadType, float zoom, out float width, out Color color)
         {
-            // Erzeuge einen Spline mit z. B. 10 Segmenten pro Kurvenabschnitt
-            List<Vector2> smoothedPoints = GenerateCatmullRomSpline(polyline, 10);
+            // Basismaße
+            float baseWidth;
+            switch (roadType)
+            {
+                case "motorway": baseWidth = 5f; color = Color.DarkOrange; break;
+                case "primary": case "trunk": baseWidth = 4f; color = Color.DarkGoldenrod; break;
+                case "secondary": case "tertiary": baseWidth = 3f; color = Color.LightGray; break; // Etwas breiter gemacht
+                case "residential": case "unclassified": baseWidth = 2f; color = Color.Gray; break;
+                default: baseWidth = 1.5f; color = Color.DarkGray; break; // Schmaler für unbekannte/kleinere
+            }
+
+            // Skaliere Breite mit inverser Wurzel des Zooms (weniger starke Skalierung als 1/Zoom)
+            width = baseWidth / MathF.Sqrt(Math.Max(0.1f, zoom));
+            // Setze Mindest- und Maximalbreite in Pixeln (unabhängig vom Zoom)
+            width = Math.Clamp(width, 0.5f, 15f); // Mindestens 0.5 Pixel, maximal 15 Pixel breit
+        }
+
+
+        private void DrawSmoothedPolyline(SpriteBatch spriteBatch, List<Vector2> smoothedPoints, Color color, float thickness, float zoom)
+        {
+            if (smoothedPoints.Count < 2) return;
+
+            // Dicke muss nicht mehr angepasst werden, da GetRoadStyle dies bereits tut
+            // float adjustedThickness = Math.Max(0.5f, thickness); // Mindestdicke
+
             for (int i = 0; i < smoothedPoints.Count - 1; i++)
             {
                 Vector2 p1 = smoothedPoints[i];
                 Vector2 p2 = smoothedPoints[i + 1];
                 Vector2 direction = p2 - p1;
                 float distance = direction.Length();
+
+                if (distance < 0.01f) continue; // Überspringe Nulllängen-Segmente
+
                 float angle = (float)Math.Atan2(direction.Y, direction.X);
-                // Anpassung der Dicke an den Zoom
-                float adjustedThickness = thickness / camera.Zoom;
-                spriteBatch.Draw(pixelTexture, p1, null, color, angle, Vector2.Zero, new Vector2(distance, adjustedThickness), SpriteEffects.None, 0);
+
+                spriteBatch.Draw(_pixelTexture, p1, null, color, angle, Vector2.Zero, new Vector2(distance, thickness), SpriteEffects.None, 0);
             }
         }
 
-        /// <summary>
-        /// Erzeugt einen Catmull-Rom-Spline, der die Originalpunkte glättet.
-        /// </summary>
-        /// <param name="points">Die Original-Punkte der Polyline.</param>
-        /// <param name="segmentsPerCurve">Anzahl der Segmente zwischen zwei Punkten.</param>
-        /// <returns>Eine Liste von interpolierten Punkten.</returns>
         private List<Vector2> GenerateCatmullRomSpline(List<Vector2> points, int segmentsPerCurve)
         {
+            // ... (wie bisher) ...
             List<Vector2> splinePoints = new List<Vector2>();
             if (points.Count < 2)
-                return points;
+                return points; // Keine Glättung möglich
 
-            // Für jeden Punkt (außer dem letzten) berechnen wir einen Spline-Abschnitt.
+            // Füge den ersten Punkt hinzu
+            splinePoints.Add(points[0]);
+
+
+            // Für jeden Punkt (außer dem ersten und letzten) berechnen wir einen Spline-Abschnitt.
             for (int i = 0; i < points.Count - 1; i++)
             {
-                Vector2 p0 = (i == 0) ? points[i] : points[i - 1];
+                Vector2 p0 = (i == 0) ? points[i] : points[i - 1]; // Wiederhole ersten Punkt am Anfang
                 Vector2 p1 = points[i];
                 Vector2 p2 = points[i + 1];
-                Vector2 p3 = (i + 2 < points.Count) ? points[i + 2] : points[i + 1];
+                Vector2 p3 = (i + 2 < points.Count) ? points[i + 2] : points[i + 1]; // Wiederhole letzten Punkt am Ende
 
-                for (int j = 0; j <= segmentsPerCurve; j++)
+                // Füge interpolierte Punkte hinzu (starte bei j=1, da p1 schon drin ist oder gerade hinzugefügt wurde)
+                for (int j = 1; j <= segmentsPerCurve; j++)
                 {
                     float t = j / (float)segmentsPerCurve;
                     Vector2 pt = CatmullRom(p0, p1, p2, p3, t);
-                    splinePoints.Add(pt);
+                    // Vermeide Duplikate
+                    if (splinePoints.Count == 0 || Vector2.DistanceSquared(splinePoints[^1], pt) > 0.01f)
+                    {
+                        splinePoints.Add(pt);
+                    }
                 }
             }
+            // Stelle sicher, dass der allerletzte Originalpunkt enthalten ist
+            if (points.Count > 1 && Vector2.DistanceSquared(splinePoints[^1], points[^1]) > 0.01f)
+            {
+                splinePoints.Add(points[^1]);
+            }
+
             return splinePoints;
         }
 
-        /// <summary>
-        /// Berechnet einen Punkt auf dem Catmull-Rom-Spline.
-        /// </summary>
         private Vector2 CatmullRom(Vector2 p0, Vector2 p1, Vector2 p2, Vector2 p3, float t)
         {
+            // ... (wie bisher) ...
             float t2 = t * t;
             float t3 = t2 * t;
             return 0.5f * ((2 * p1) +
@@ -149,86 +199,39 @@ namespace cmetro25.Views
                            (-p0 + 3 * p1 - 3 * p2 + p3) * t3);
         }
 
-        /// <summary>
-        /// Alt: Zeichnet die Polyline segmentweise (ohne Glättung).
-        /// </summary>
-        private void DrawPolyline(SpriteBatch spriteBatch, List<Vector2> polyline, Color color, float baseThickness, float baseOverlapFactor, MapCamera camera)
+        private void DrawPolyline(SpriteBatch spriteBatch, List<Vector2> polyline, Color color, float thickness, float baseOverlapFactor, float zoom)
         {
-            if (polyline.Count < 2)
-                return;
+            if (polyline.Count < 2) return;
 
-            float adjustedThickness = baseThickness / camera.Zoom;
-            float minThickness = baseThickness * 0.5f;
-            if (adjustedThickness < minThickness)
-                adjustedThickness = minThickness;
-            float adjustedOverlapFactor = Math.Min(baseOverlapFactor / camera.Zoom, 0.5f);
+            // Dicke wird bereits von GetRoadStyle angepasst
+            // float adjustedThickness = Math.Max(0.5f, thickness);
+
+            // Overlap sollte konstant in Pixeln sein, nicht mit Zoom skalieren
+            float overlap = 0.1f; // Kleiner Pixel-Overlap
 
             for (int i = 0; i < polyline.Count - 1; i++)
             {
                 Vector2 p1 = polyline[i];
                 Vector2 p2 = polyline[i + 1];
                 Vector2 direction = p2 - p1;
-                p2 += direction * adjustedOverlapFactor;
-                float distance = Vector2.Distance(p1, p2);
+                float distance = direction.Length();
+
+                if (distance < 0.01f) continue;
+
                 float angle = (float)Math.Atan2(direction.Y, direction.X);
-                spriteBatch.Draw(pixelTexture, p1, null, color, angle, Vector2.Zero, new Vector2(distance, adjustedThickness), SpriteEffects.None, 0);
+
+                // Füge Overlap hinzu
+                Vector2 p2_overlapped = p2 + direction * (overlap / distance);
+                float drawDistance = Vector2.Distance(p1, p2_overlapped);
+
+
+                spriteBatch.Draw(_pixelTexture, p1, null, color, angle, Vector2.Zero, new Vector2(drawDistance, thickness), SpriteEffects.None, 0);
             }
         }
 
-        /// <summary>
-        /// Prüft, ob mindestens ein Punkt der Polyline im sichtbaren Bereich liegt oder ein Segment den Bereich schneidet.
-        /// </summary>
-        private bool IsPolylineVisible(List<Vector2> polyline, RectangleF visibleBounds)
-        {
-            foreach (Vector2 point in polyline)
-                if (visibleBounds.Contains(point))
-                    return true;
+        // IsPolylineVisible und LineSegmentsIntersect werden nicht mehr benötigt,
+        // da die Filterung jetzt durch TileManager/Quadtree erfolgt.
 
-            Vector2 topLeft = new Vector2(visibleBounds.Left, visibleBounds.Top);
-            Vector2 topRight = new Vector2(visibleBounds.Right, visibleBounds.Top);
-            Vector2 bottomLeft = new Vector2(visibleBounds.Left, visibleBounds.Bottom);
-            Vector2 bottomRight = new Vector2(visibleBounds.Right, visibleBounds.Bottom);
-            var rectangleEdges = new List<(Vector2, Vector2)>
-            {
-                (topLeft, topRight),
-                (topRight, bottomRight),
-                (bottomRight, bottomLeft),
-                (bottomLeft, topLeft)
-            };
-
-            for (int i = 0; i < polyline.Count - 1; i++)
-            {
-                Vector2 p1 = polyline[i];
-                Vector2 p2 = polyline[i + 1];
-                foreach (var edge in rectangleEdges)
-                    if (LineSegmentsIntersect(p1, p2, edge.Item1, edge.Item2))
-                        return true;
-            }
-            return false;
-        }
-
-        private static bool LineSegmentsIntersect(Vector2 p, Vector2 p2, Vector2 q, Vector2 q2)
-        {
-            Vector2 r = p2 - p;
-            Vector2 s = q2 - q;
-            float rxs = r.X * s.Y - r.Y * s.X;
-            Vector2 qp = q - p;
-            float qpxr = qp.X * r.Y - qp.Y * r.X;
-            if (Math.Abs(rxs) < 0.0001f && Math.Abs(qpxr) < 0.0001f)
-            {
-                float rDotR = Vector2.Dot(r, r);
-                float t0 = Vector2.Dot(qp, r) / rDotR;
-                float t1 = t0 + Vector2.Dot(s, r) / rDotR;
-                if (t0 > t1)
-                    (t1, t0) = (t0, t1);
-                return (t0 <= 1 && t1 >= 0);
-            }
-            if (Math.Abs(rxs) < 0.0001f && Math.Abs(qpxr) >= 0.0001f)
-                return false;
-            float t = (qp.X * s.Y - qp.Y * s.X) / rxs;
-            float u = (qp.X * r.Y - qp.Y * r.X) / rxs;
-            return (t is >= 0 and <= 1 && u is >= 0 and <= 1);
-        }
-        public int GetVisibleLineCount() => _visibleItemCount;
+        public int GetVisibleLineCount() => _visibleLineSegmentsDrawn; // Gibt Anzahl gezeichneter Segmente zurück
     }
 }

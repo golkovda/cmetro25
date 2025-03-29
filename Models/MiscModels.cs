@@ -40,6 +40,7 @@ namespace cmetro25.Models
         public string name { get; set; }
         public string id { get; set; }
         public string highway { get; set; }
+        public string maxspeed { get; set; }
 
         [JsonProperty("@id")]
         public string at_id { get; set; }
