@@ -13,6 +13,9 @@ using cmetro25.Views;
 
 namespace cmetro25.Utils
 {
+    /// <summary>
+    /// Verwaltet die Kachelgenerierung und das Caching für die Kartendarstellung.
+    /// </summary>
     public class TileManager
     {
         // --- Bestehende Member ---
@@ -34,7 +37,17 @@ namespace cmetro25.Utils
         private Task _tileRequestTask = Task.CompletedTask; // Task zur Verwaltung der Anfragen
         private const int MaxTilesToGeneratePerFrame = 2; // Wieviele Tiles max. pro Update generiert werden
 
-        public TileManager(GraphicsDevice graphicsDevice, List<District> districts, RoadService roadService, MapLoader mapLoader, DistrictRenderer dr, RoadRenderer rr, int tileSize = 512) // TileSize angepasst
+        /// <summary>
+        /// Initialisiert eine neue Instanz der <see cref="TileManager"/> Klasse.
+        /// </summary>
+        /// <param name="graphicsDevice">Das GraphicsDevice zum Rendern der Kacheln.</param>
+        /// <param name="districts">Die Liste der Distrikte.</param>
+        /// <param name="roadService">Der RoadService zum Verwalten der Straßen.</param>
+        /// <param name="mapLoader">Der MapLoader zum Laden der Kartendaten.</param>
+        /// <param name="dr">Der DistrictRenderer zum Rendern der Distrikte.</param>
+        /// <param name="rr">Der RoadRenderer zum Rendern der Straßen.</param>
+        /// <param name="tileSize">Die Größe der Kacheln in Pixeln.</param>
+        public TileManager(GraphicsDevice graphicsDevice, List<District> districts, RoadService roadService, MapLoader mapLoader, DistrictRenderer dr, RoadRenderer rr, int tileSize = 512)
         {
             _graphicsDevice = graphicsDevice;
             _districts = districts;
@@ -48,9 +61,12 @@ namespace cmetro25.Utils
             Debug.WriteLine($"Global Map Bounds: {_mapBounds}");
         }
 
+        /// <summary>
+        /// Berechnet die globalen Kartenbegrenzungen basierend auf den Distrikten und Straßen.
+        /// </summary>
+        /// <returns>Die berechneten globalen Kartenbegrenzungen.</returns>
         private RectangleF ComputeGlobalMapBounds()
         {
-            // ... (Implementierung wie zuvor) ...
             float minX = float.MaxValue, minY = float.MaxValue;
             float maxX = float.MinValue, maxY = float.MinValue;
             bool hasBounds = false;
@@ -91,18 +107,27 @@ namespace cmetro25.Utils
             return new RectangleF(minX, minY, Math.Max(1, width), Math.Max(1, height));
         }
 
-        // Liefert ein vorhandenes Tile oder null, wenn es noch nicht generiert wurde.
-        // Diese Methode wird jetzt nur noch von DrawTiles aufgerufen.
+        /// <summary>
+        /// Liefert ein vorhandenes Tile oder null, wenn es noch nicht generiert wurde.
+        /// </summary>
+        /// <param name="zoom">Der Zoomlevel der Kachel.</param>
+        /// <param name="tileX">Die X-Koordinate der Kachel.</param>
+        /// <param name="tileY">Die Y-Koordinate der Kachel.</param>
+        /// <returns>Das RenderTarget2D der Kachel oder null, wenn es noch nicht generiert wurde.</returns>
         public RenderTarget2D GetExistingTile(int zoom, int tileX, int tileY)
         {
             var key = (zoom, tileX, tileY);
             _tileCache.TryGetValue(key, out RenderTarget2D tileRT);
-            // Optional: Prüfen, ob tileRT disposed wurde (sollte nicht passieren, wenn Cache korrekt verwaltet wird)
-            // if (tileRT != null && tileRT.IsDisposed) return null;
             return tileRT;
         }
 
-        // Generiert ein Tile (nur im Hauptthread aufrufen!)
+        /// <summary>
+        /// Generiert eine Kachel. Diese Methode sollte nur im Hauptthread aufgerufen werden.
+        /// </summary>
+        /// <param name="zoom">Der Zoomlevel der Kachel.</param>
+        /// <param name="tileX">Die X-Koordinate der Kachel.</param>
+        /// <param name="tileY">Die Y-Koordinate der Kachel.</param>
+        /// <returns>Das generierte RenderTarget2D der Kachel.</returns>
         private RenderTarget2D GenerateTile(int zoom, int tileX, int tileY)
         {
             var key = (zoom, tileX, tileY);
@@ -164,8 +189,6 @@ namespace cmetro25.Utils
 
                 // Füge das erfolgreich generierte Tile dem Cache hinzu
                 _tileCache[key] = tileRT;
-                // Debug.WriteLine($"Generated Tile: {key}");
-
             }
             catch (Exception ex)
             {
@@ -189,8 +212,11 @@ namespace cmetro25.Utils
             return tileRT;
         }
 
-
-        // NEU: Startet einen Task, um benötigte Tiles zu identifizieren und in die Queue zu legen
+        /// <summary>
+        /// Startet einen Task, um benötigte Tiles zu identifizieren und in die Queue zu legen.
+        /// </summary>
+        /// <param name="area">Der Bereich, für den Tiles generiert werden sollen.</param>
+        /// <param name="zoomLevel">Der Zoomlevel der Tiles.</param>
         public void RequestTileGeneration(RectangleF area, int zoomLevel)
         {
             // Nur einen Request-Task gleichzeitig laufen lassen
@@ -232,11 +258,12 @@ namespace cmetro25.Utils
                 }
                 if (requestedCount > 0)
                     Debug.WriteLine($"Requested {requestedCount} new tiles for zoom {zoomLevel}. Queue size: {_tileGenerationQueue.Count}");
-
             });
         }
 
-        // NEU: Verarbeitet die Queue im Hauptthread (in CMetro.Update aufrufen)
+        /// <summary>
+        /// Verarbeitet die Tile-Generierungs-Queue im Hauptthread. Sollte in CMetro.Update aufgerufen werden.
+        /// </summary>
         public void ProcessTileGenerationQueue()
         {
             int processedCount = 0;
@@ -256,10 +283,14 @@ namespace cmetro25.Utils
             }
         }
 
-
+        /// <summary>
+        /// Zeichnet die vorhandenen Tiles basierend auf der aktuellen Kameraposition und dem Zoomlevel.
+        /// </summary>
+        /// <param name="spriteBatch">Das SpriteBatch zum Zeichnen der Tiles.</param>
+        /// <param name="camera">Die aktuelle Kamera.</param>
+        /// <param name="zoomLevel">Der Zoomlevel der Tiles.</param>
         public void DrawTiles(SpriteBatch spriteBatch, MapCamera camera, int zoomLevel)
         {
-            // ... (Berechnung von visibleWorld, numTiles, tileWorldWidth/Height, min/max TileX/Y wie zuvor) ...
             if (_mapBounds.Width <= 0 || _mapBounds.Height <= 0) return;
 
             RectangleF visibleWorld = camera.BoundingRectangle;
@@ -271,7 +302,6 @@ namespace cmetro25.Utils
             int maxTileX = Math.Min(numTiles - 1, (int)Math.Ceiling((visibleWorld.Right - _mapBounds.Left) / tileWorldWidth));
             int minTileY = Math.Max(0, (int)Math.Floor((visibleWorld.Top - _mapBounds.Top) / tileWorldHeight));
             int maxTileY = Math.Min(numTiles - 1, (int)Math.Ceiling((visibleWorld.Bottom - _mapBounds.Top) / tileWorldHeight));
-
 
             for (int ty = minTileY; ty <= maxTileY; ty++)
             {
@@ -291,42 +321,13 @@ namespace cmetro25.Utils
                                          new Vector2(tileWorldWidth / _tileSize, tileWorldHeight / _tileSize),
                                          SpriteEffects.None, 0f);
                     }
-                    else
-                    {
-                        // Optional: Zeichne einen Platzhalter oder tue nichts, wenn Tile noch nicht bereit ist
-                        // Oder: Fordere das Tile erneut an (sollte durch RequestTileGeneration abgedeckt sein)
-                        // float tileWorldX = _mapBounds.X + tx * tileWorldWidth;
-                        // float tileWorldY = _mapBounds.Y + ty * tileWorldHeight;
-                        // DrawPlaceholderTile(spriteBatch, tileWorldX, tileWorldY, tileWorldWidth, tileWorldHeight);
-                    }
                 }
             }
         }
 
-        // Optional: Hilfsmethode für Platzhalter
-        private void DrawPlaceholderTile(SpriteBatch spriteBatch, float x, float y, float width, float height)
-        {
-            // Zeichne z.B. einen einfachen Rahmen oder eine Füllfarbe
-            // Denke daran, dass dies innerhalb von spriteBatch.Begin/End mit Kameratransformation aufgerufen wird
-            // Beispiel: Zeichne einen dünnen grauen Rahmen
-            // _districtRenderer.DrawRectangle(spriteBatch, new RectangleF(x, y, width, height), Color.DarkGray, 1f / camera.Zoom); // Annahme: Es gibt eine DrawRectangle Methode
-        }
-
-
-        private List<District> QueryDistrictsInBounds(RectangleF bounds)
-        {
-            // ... (Implementierung wie zuvor) ...
-            List<District> result = new List<District>();
-            foreach (var district in _districts)
-            {
-                if (district.BoundingBox.Intersects(bounds))
-                {
-                    result.Add(district);
-                }
-            }
-            return result;
-        }
-
+        /// <summary>
+        /// Leert den Tile-Cache und gibt die Ressourcen frei.
+        /// </summary>
         public void ClearCache()
         {
             // Leere auch die Queue und das Set
@@ -341,10 +342,31 @@ namespace cmetro25.Utils
             Debug.WriteLine("Tile cache, queue, and processing keys cleared.");
         }
 
-        // NEU: Gibt die aktuelle Größe der Generierungsqueue zurück (für Debug/UI)
+        /// <summary>
+        /// Gibt die aktuelle Größe der Generierungsqueue zurück (für Debug/UI).
+        /// </summary>
+        /// <returns>Die Größe der Generierungsqueue.</returns>
         public int GetGenerationQueueSize()
         {
             return _tileGenerationQueue.Count;
+        }
+
+        /// <summary>
+        /// Fragt die Distrikte ab, die sich innerhalb der angegebenen Grenzen befinden.
+        /// </summary>
+        /// <param name="bounds">Die Grenzen, innerhalb derer die Distrikte abgefragt werden sollen.</param>
+        /// <returns>Eine Liste der Distrikte innerhalb der angegebenen Grenzen.</returns>
+        private List<District> QueryDistrictsInBounds(RectangleF bounds)
+        {
+            List<District> result = new List<District>();
+            foreach (var district in _districts)
+            {
+                if (district.BoundingBox.Intersects(bounds))
+                {
+                    result.Add(district);
+                }
+            }
+            return result;
         }
     }
 }

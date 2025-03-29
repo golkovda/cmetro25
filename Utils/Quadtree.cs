@@ -6,16 +6,32 @@ using System.Linq; // Für Any()
 
 namespace cmetro25.Utils
 {
+    /// <summary>
+    /// Eine generische Quadtree-Datenstruktur zur effizienten Verwaltung und Abfrage von 2D-Raumdaten.
+    /// </summary>
+    /// <typeparam name="T">Der Typ der Elemente, die im Quadtree gespeichert werden.</typeparam>
     public class Quadtree<T>
     {
-        // Interne Struktur zum Speichern von Elementen und ihren Grenzen
-        private struct QuadtreeItem(T item, RectangleF bounds)
+        /// <summary>
+        /// Interne Struktur zum Speichern von Elementen und ihren Grenzen.
+        /// </summary>
+        private struct QuadtreeItem
         {
-            public T Item = item;
-            public RectangleF Bounds = bounds;
+            public T Item;
+            public RectangleF Bounds;
+
+            public QuadtreeItem(T item, RectangleF bounds)
+            {
+                Item = item;
+                Bounds = bounds;
+            }
         }
 
-        public RectangleF Bounds { get; } // Die Grenzen dieses Knotens (readonly nach Konstruktion)
+        /// <summary>
+        /// Die Grenzen dieses Knotens (readonly nach Konstruktion).
+        /// </summary>
+        public RectangleF Bounds { get; }
+
         private readonly int _maxItems; // Maximale Elemente pro Knoten, bevor unterteilt wird
         private readonly int _maxDepth; // Maximale Tiefe des Baumes
 
@@ -26,7 +42,9 @@ namespace cmetro25.Utils
         private Quadtree<T>[] _children;
         private bool IsLeaf => _children == null;
 
-        // Zählt alle Elemente im Baum (rekursiv)
+        /// <summary>
+        /// Zählt alle Elemente im Baum (rekursiv).
+        /// </summary>
         public int Count
         {
             get
@@ -43,7 +61,13 @@ namespace cmetro25.Utils
             }
         }
 
-        public Quadtree(RectangleF bounds, int maxItems = 4, int maxDepth = 8) // MaxDepth angepasst, 10 kann sehr tief sein
+        /// <summary>
+        /// Initialisiert eine neue Instanz der <see cref="Quadtree{T}"/> Klasse.
+        /// </summary>
+        /// <param name="bounds">Die Grenzen dieses Knotens.</param>
+        /// <param name="maxItems">Die maximale Anzahl von Elementen pro Knoten, bevor unterteilt wird.</param>
+        /// <param name="maxDepth">Die maximale Tiefe des Baumes.</param>
+        public Quadtree(RectangleF bounds, int maxItems = 4, int maxDepth = 8)
         {
             // Stelle sicher, dass die Grenzen gültig sind
             if (bounds.Width <= 0 || bounds.Height <= 0)
@@ -58,11 +82,14 @@ namespace cmetro25.Utils
             _maxDepth = maxDepth;
         }
 
-        // Fügt ein Element mit seinen Grenzen in den Baum ein
+        /// <summary>
+        /// Fügt ein Element mit seinen Grenzen in den Baum ein.
+        /// </summary>
+        /// <param name="item">Das einzufügende Element.</param>
+        /// <param name="itemBounds">Die Grenzen des einzufügenden Elements.</param>
         public void Insert(T item, RectangleF itemBounds)
         {
             // Ignoriere Elemente, die überhaupt nicht in die Grenzen dieses Knotens fallen
-            // OPTIMIERUNG: Prüfe auf Intersects statt Contains(Position)
             if (!Bounds.Intersects(itemBounds))
             {
                 return; // Passt nicht hierher
@@ -103,7 +130,11 @@ namespace cmetro25.Utils
             }
         }
 
-        // Fragt den Baum nach Elementen ab, deren Grenzen den angegebenen Bereich schneiden
+        /// <summary>
+        /// Fragt den Baum nach Elementen ab, deren Grenzen den angegebenen Bereich schneiden.
+        /// </summary>
+        /// <param name="area">Der Abfragebereich.</param>
+        /// <returns>Eine Liste von Elementen, deren Grenzen den Abfragebereich schneiden.</returns>
         public List<T> Query(RectangleF area)
         {
             List<T> result = new List<T>();
@@ -111,7 +142,11 @@ namespace cmetro25.Utils
             return result;
         }
 
-        // Rekursive Hilfsmethode für die Abfrage
+        /// <summary>
+        /// Rekursive Hilfsmethode für die Abfrage.
+        /// </summary>
+        /// <param name="area">Der Abfragebereich.</param>
+        /// <param name="result">Die Liste der gefundenen Elemente.</param>
         private void QueryRecursive(RectangleF area, List<T> result)
         {
             // 1. Prüfe, ob der Abfragebereich diesen Knoten überhaupt schneidet
@@ -121,7 +156,6 @@ namespace cmetro25.Utils
             }
 
             // 2. Füge Elemente hinzu, die direkt in diesem Knoten gespeichert sind und den Bereich schneiden
-            // WICHTIG: Auch in Nicht-Blattknoten können Elemente gespeichert sein!
             foreach (var qtItem in _items)
             {
                 if (qtItem.Bounds.Intersects(area))
@@ -140,8 +174,9 @@ namespace cmetro25.Utils
             }
         }
 
-
-        // Unterteilt diesen Knoten in vier Kinderknoten
+        /// <summary>
+        /// Unterteilt diesen Knoten in vier Kinderknoten.
+        /// </summary>
         private void Subdivide()
         {
             if (!IsLeaf) return; // Sollte nicht passieren, aber sicher ist sicher
@@ -160,7 +195,9 @@ namespace cmetro25.Utils
             _children[3] = new Quadtree<T>(new RectangleF(x + halfWidth, y + halfHeight, halfWidth, halfHeight), _maxItems, nextDepth);
         }
 
-        // Verschiebt Elemente von diesem Knoten in passende Kinderknoten nach einer Unterteilung
+        /// <summary>
+        /// Verschiebt Elemente von diesem Knoten in passende Kinderknoten nach einer Unterteilung.
+        /// </summary>
         private void PushItemsDown()
         {
             if (IsLeaf) return; // Keine Kinder zum Verschieben
@@ -187,8 +224,12 @@ namespace cmetro25.Utils
             _items.AddRange(itemsToKeep);
         }
 
-        // Ermittelt den Index des Kinderknotens, in den ein Element vollständig passt.
-        // Gibt -1 zurück, wenn es in keinen vollständig passt (Grenzen überschneidet).
+        /// <summary>
+        /// Ermittelt den Index des Kinderknotens, in den ein Element vollständig passt.
+        /// Gibt -1 zurück, wenn es in keinen vollständig passt (Grenzen überschneidet).
+        /// </summary>
+        /// <param name="itemBounds">Die Grenzen des Elements.</param>
+        /// <returns>Der Index des passenden Kinderknotens oder -1, wenn es in keinen passt.</returns>
         private int GetTargetChildIndex(RectangleF itemBounds)
         {
             if (IsLeaf) return -1; // Keine Kinder vorhanden
@@ -198,22 +239,22 @@ namespace cmetro25.Utils
             {
                 RectangleF childBounds = _children[i].Bounds;
 
-                // --- KORREKTUR: Manuelle Prüfung auf vollständige Enthaltung ---
+                // Manuelle Prüfung auf vollständige Enthaltung
                 if (itemBounds.Left >= childBounds.Left &&
                     itemBounds.Right <= childBounds.Right &&
                     itemBounds.Top >= childBounds.Top &&
                     itemBounds.Bottom <= childBounds.Bottom)
                 {
-                    // Das itemBounds liegt vollständig innerhalb der childBounds
                     targetIndex = i;
                     break; // Gefunden, passt nur in dieses eine Kind
                 }
-                // --- Ende Korrektur ---
             }
             return targetIndex;
         }
 
-        // Entfernt alle Elemente und Kinderknoten aus dem Baum
+        /// <summary>
+        /// Entfernt alle Elemente und Kinderknoten aus dem Baum.
+        /// </summary>
         public void Clear()
         {
             _items.Clear();

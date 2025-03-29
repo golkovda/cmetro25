@@ -16,9 +16,11 @@ using cmetro25.Utils;
 using cmetro25.Core;
 using System.Collections.Concurrent; // Sicherstellen, dass dies vorhanden ist
 
-
 namespace cmetro25.Core
 {
+    /// <summary>
+    /// Hauptklasse für das Spiel CMetro. Verwaltet das Laden und Rendern der Kartendaten, Eingaben und UI.
+    /// </summary>
     public class CMetro : Game
     {
         private readonly GraphicsDeviceManager _graphics;
@@ -80,6 +82,9 @@ namespace cmetro25.Core
         private const float CameraMoveThresholdForTileRequest = 100f; // Pixel-Bewegungsschwelle
         private const float CameraZoomThresholdForTileRequest = 0.1f; // Zoom-Änderungsschwelle
 
+        /// <summary>
+        /// Initialisiert eine neue Instanz der CMetro-Klasse.
+        /// </summary>
         public CMetro()
         {
             _graphics = new GraphicsDeviceManager(this);
@@ -92,6 +97,9 @@ namespace cmetro25.Core
             // IsFixedTimeStep = false;
         }
 
+        /// <summary>
+        /// Initialisiert das Spiel und legt grundlegende Komponenten fest.
+        /// </summary>
         protected override void Initialize()
         {
             // Initialisiere nur Dinge, die keine geladenen Daten benötigen
@@ -103,6 +111,9 @@ namespace cmetro25.Core
             base.Initialize();
         }
 
+        /// <summary>
+        /// Lädt Inhalte und startet den asynchronen Ladevorgang für die Kartendaten.
+        /// </summary>
         protected override void LoadContent()
         {
             _spriteBatch = new SpriteBatch(GraphicsDevice);
@@ -119,7 +130,9 @@ namespace cmetro25.Core
             StartLoadingMapData();
         }
 
-        // NEU: Methode zum Starten des Ladevorgangs
+        /// <summary>
+        /// Startet den asynchronen Ladevorgang der Kartendaten.
+        /// </summary>
         private void StartLoadingMapData()
         {
             if (_loadingTask == null || _loadingTask.IsCompleted)
@@ -132,7 +145,10 @@ namespace cmetro25.Core
             }
         }
 
-        // NEU: Asynchrone Methode zum Laden der Daten (läuft im Hintergrund)
+        /// <summary>
+        /// Lädt die Kartendaten asynchron im Hintergrund.
+        /// </summary>
+        /// <returns>Ein Task, der den Ladevorgang repräsentiert.</returns>
         private async Task LoadMapDataAsync()
         {
             try
@@ -183,7 +199,10 @@ namespace cmetro25.Core
             }
         }
 
-        // NEU: Methode zur Initialisierung der Komponenten, die geladene Daten benötigen (läuft im Hauptthread)
+        /// <summary>
+        /// Initialisiert Komponenten, die geladene Kartendaten benötigen.
+        /// Diese Methode wird im Hauptthread aufgerufen.
+        /// </summary>
         private void InitializeMapComponents()
         {
             try
@@ -207,7 +226,6 @@ namespace cmetro25.Core
                 RequestTilesForCurrentView();
                 _lastCameraPositionForTileRequest = _camera.Position;
                 _lastCameraZoomForTileRequest = _camera.Zoom;
-
             }
             catch (Exception ex)
             {
@@ -217,7 +235,9 @@ namespace cmetro25.Core
             }
         }
 
-
+        /// <summary>
+        /// Entlädt die Inhalte und gibt Ressourcen frei.
+        /// </summary>
         protected override void UnloadContent()
         {
             _pixelTexture?.Dispose();
@@ -226,6 +246,10 @@ namespace cmetro25.Core
             base.UnloadContent();
         }
 
+        /// <summary>
+        /// Aktualisiert den Spielzustand.
+        /// </summary>
+        /// <param name="gameTime">Die Zeit, die seit dem letzten Update vergangen ist.</param>
         protected override void Update(GameTime gameTime)
         {
             // --- Ladezustand prüfen ---
@@ -274,8 +298,9 @@ namespace cmetro25.Core
             base.Update(gameTime);
         }
 
-
-        // NEU: Aufgeteiltes Input Handling
+        /// <summary>
+        /// Führt grundlegende Eingabeverarbeitung aus, wie z.B. das Überprüfen der Escape-Taste.
+        /// </summary>
         private void HandleBasicInput()
         {
             if (GamePad.GetState(PlayerIndex.One).Buttons.Back == ButtonState.Pressed ||
@@ -284,11 +309,12 @@ namespace cmetro25.Core
             // Hier könnte man z.B. mit F5 das Neuladen triggern, falls _loadingError != null
         }
 
-        // NEU: Input Handling für das laufende Spiel
+        /// <summary>
+        /// Verarbeitet Spieleingaben, wie das Umschalten des Performance-Menüs.
+        /// </summary>
         private void HandleGameInput()
         {
             HandleBasicInput(); // Exit-Check
-
             var currentKeyboardState = Keyboard.GetState();
 
             // Toggle Performance-Menü (F3)
@@ -300,7 +326,10 @@ namespace cmetro25.Core
             _previousKeyboardState = currentKeyboardState;
         }
 
-        // NEU: Zoom Debounce Logik ausgelagert
+        /// <summary>
+        /// Verarbeitet die Zoom-Debounce-Logik, um Road-Interpolation nur bei stabilen Zoom-Änderungen auszulösen.
+        /// </summary>
+        /// <param name="gameTime">Die Zeit seit dem letzten Update.</param>
         private void HandleZoomDebounce(GameTime gameTime)
         {
             float currentZoom = _camera.Zoom;
@@ -329,13 +358,11 @@ namespace cmetro25.Core
                 }
             }
         }
-        // In RoadService.cs hinzufügen:
-        // private float _lastInterpolationZoomTriggered = -1f;
-        // public float GetLastInterpolationZoom() => _lastInterpolationZoomTriggered;
-        // In UpdateRoadInterpolationsAsync, vor Task.Run: _lastInterpolationZoomTriggered = zoom;
 
-
-        // NEU: Performance Counter Logik ausgelagert
+        /// <summary>
+        /// Aktualisiert die Performance-Zähler, wie FPS und Updates pro Sekunde.
+        /// </summary>
+        /// <param name="gameTime">Die verstrichene Zeit seit dem letzten Update.</param>
         private void UpdatePerformanceCounters(GameTime gameTime)
         {
             _elapsedTime += gameTime.ElapsedGameTime.TotalSeconds;
@@ -352,14 +379,15 @@ namespace cmetro25.Core
             _updateCounter++; // Zähle jeden Update-Durchlauf
         }
 
-        // NEU: Prüft Kameraänderung und fordert Tiles an
+        /// <summary>
+        /// Prüft, ob sich die Kamera signifikant bewegt oder gezoomt hat, und fordert neue Tiles an.
+        /// </summary>
         private void CheckCameraMovementAndRequestTiles()
         {
             bool zoomChanged = Math.Abs(_camera.Zoom - _lastCameraZoomForTileRequest) > CameraZoomThresholdForTileRequest;
             // Prüfe Distanz in Weltkoordinaten oder Bildschirmkoordinaten? Bildschirm ist oft intuitiver.
             float cameraMoveDistanceScreen = Vector2.Distance(_camera.WorldToScreen(_lastCameraPositionForTileRequest), _camera.WorldToScreen(_camera.Position));
             bool positionChanged = cameraMoveDistanceScreen > CameraMoveThresholdForTileRequest;
-
 
             if (zoomChanged || positionChanged)
             {
@@ -370,7 +398,9 @@ namespace cmetro25.Core
             }
         }
 
-        // NEU: Kapselt die Tile-Anforderung
+        /// <summary>
+        /// Fordert die Generierung von Tiles für die aktuelle Kamerasicht an.
+        /// </summary>
         private void RequestTilesForCurrentView()
         {
             if (_tileManager != null && _camera != null)
@@ -381,6 +411,10 @@ namespace cmetro25.Core
             }
         }
 
+        /// <summary>
+        /// Zeichnet den aktuellen Spielzustand.
+        /// </summary>
+        /// <param name="gameTime">Die verstrichene Zeit seit dem letzten Draw-Aufruf.</param>
         protected override void Draw(GameTime gameTime)
         {
             GraphicsDevice.Clear(_mapBackgroundColor);
@@ -388,10 +422,11 @@ namespace cmetro25.Core
             // --- Ladebildschirm / Fehler ---
             if (_isLoading || !_mapDataReady)
             {
-                // ... (Zeichnen wie zuvor) ...
+                // Zeichne einen Lade- oder Fehlerbildschirm
                 _spriteBatch.Begin();
                 string message = _isLoading ? "Lade Kartendaten..." : (_loadingError ?? "Initialisierung...");
-                if (_loadingError != null && !_isLoading) message = $"Fehler beim Laden:\n{_loadingError.Split('\n')[0]}";
+                if (_loadingError != null && !_isLoading)
+                    message = $"Fehler beim Laden:\n{_loadingError.Split('\n')[0]}";
 
                 Vector2 textSize = _font.MeasureString(message);
                 Vector2 position = new Vector2((_graphics.PreferredBackBufferWidth - textSize.X) / 2,
@@ -423,7 +458,11 @@ namespace cmetro25.Core
             base.Draw(gameTime);
         }
 
-        // Berechnet den diskreten Zoomlevel für das Tiling
+        /// <summary>
+        /// Berechnet den diskreten Zoomlevel für das Tiling.
+        /// </summary>
+        /// <param name="zoom">Der aktuelle Zoomfaktor der Kamera.</param>
+        /// <returns>Ein Integer, der den diskreten Zoomlevel darstellt.</returns>
         private int ComputeTileZoomLevel(float zoom)
         {
             // Experimentiere mit der Basis (z.B. 1.0 statt 1.2) und dem Logarithmus-Basis (2)
@@ -435,8 +474,11 @@ namespace cmetro25.Core
             return Math.Clamp(level, 0, maxLevel);
         }
 
-
-        // Berechnet die sichtbaren Weltkoordinaten mit einem Rand
+        /// <summary>
+        /// Berechnet die sichtbaren Weltkoordinaten mit einem optionalen Rand in Pixeln.
+        /// </summary>
+        /// <param name="pixelMargin">Der zusätzliche Rand in Pixeln.</param>
+        /// <returns>Ein RectangleF, das die sichtbaren Weltkoordinaten darstellt.</returns>
         private RectangleF CalculateVisibleBounds(float pixelMargin = 50f)
         {
             if (_camera == null) return RectangleF.Empty; // Kamera noch nicht bereit
@@ -453,7 +495,6 @@ namespace cmetro25.Core
                 Vector2 center = _camera.Position;
                 visibleBounds = new RectangleF(center.X - worldWidth / 2, center.Y - worldHeight / 2, worldWidth, worldHeight);
             }
-
 
             // Erweitere um den Rand
             visibleBounds = new RectangleF(

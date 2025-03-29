@@ -11,26 +11,44 @@ using MonoGame.Extended;
 
 namespace cmetro25.Services
 {
-    // OPTIMIERUNG: Kamera wird optional gemacht und kann später gesetzt werden
+    /// <summary>
+    /// Lädt und verarbeitet Kartendaten (Distrikte und Straßen) aus GeoJSON-Dateien.
+    /// </summary>
     public class MapLoader
     {
+        /// <summary>
+        /// Maximale Basisdistanz für die Interpolation von Straßen.
+        /// </summary>
         public float BaseMaxDistance { get; private set; }
+
         private MapCamera _camera; // Kann null sein während des initialen Ladens
         private float _initialLoadZoom; // Zoom für die allererste Interpolation
 
-        // OPTIMIERUNG: Konstruktor braucht Kamera nicht mehr zwingend sofort
+        /// <summary>
+        /// Initialisiert eine neue Instanz der <see cref="MapLoader"/> Klasse.
+        /// </summary>
+        /// <param name="baseMaxDistance">Die maximale Basisdistanz für die Interpolation von Straßen.</param>
+        /// <param name="initialLoadZoom">Der Zoomfaktor für die initiale Interpolation.</param>
         public MapLoader(float baseMaxDistance = 5f, float initialLoadZoom = 1.0f)
         {
             BaseMaxDistance = baseMaxDistance;
             _initialLoadZoom = initialLoadZoom; // Standard-Zoom für initiales Laden
         }
 
-        // NEU: Methode zum nachträglichen Setzen der Kamera
+        /// <summary>
+        /// Setzt die Kamera für den MapLoader.
+        /// </summary>
+        /// <param name="camera">Die zu setzende Kamera.</param>
         public void SetCamera(MapCamera camera)
         {
             _camera = camera;
         }
 
+        /// <summary>
+        /// Lädt Distrikte aus einer GeoJSON-Datei.
+        /// </summary>
+        /// <param name="filePath">Der Pfad zur GeoJSON-Datei.</param>
+        /// <returns>Eine Liste von geladenen Distrikten.</returns>
         public List<District> LoadDistricts(string filePath)
         {
             List<District> districts = new List<District>();
@@ -97,7 +115,11 @@ namespace cmetro25.Services
             return districts;
         }
 
-        // NEU: Hilfsmethode zur Berechnung der Bounding Box eines Distrikts
+        /// <summary>
+        /// Berechnet die Bounding Box eines Distrikts basierend auf seinen Polygonen.
+        /// </summary>
+        /// <param name="polygons">Die Polygone des Distrikts.</param>
+        /// <returns>Die berechnete Bounding Box.</returns>
         private RectangleF CalculateDistrictBoundingBox(List<List<Vector2>> polygons)
         {
             if (polygons == null || polygons.Count == 0 || polygons[0].Count == 0)
@@ -122,10 +144,13 @@ namespace cmetro25.Services
             return new RectangleF(minX, minY, maxX - minX, maxY - minY);
         }
 
-
+        /// <summary>
+        /// Berechnet den Schwerpunkt der transformierten Polygone eines Distrikts.
+        /// </summary>
+        /// <param name="polygons">Die Polygone des Distrikts.</param>
+        /// <returns>Der berechnete Schwerpunkt.</returns>
         private Vector2 CalculateCentroidOfTransformedPolygons(List<List<Vector2>> polygons)
         {
-            // ... (wie bisher) ...
             Vector2 centroid = Vector2.Zero;
             int pointCount = 0;
             foreach (var polygon in polygons)
@@ -141,6 +166,11 @@ namespace cmetro25.Services
             return centroid;
         }
 
+        /// <summary>
+        /// Lädt Straßen aus einer GeoJSON-Datei.
+        /// </summary>
+        /// <param name="filePath">Der Pfad zur GeoJSON-Datei.</param>
+        /// <returns>Eine Liste von geladenen Straßen.</returns>
         public List<Road> LoadRoads(string filePath)
         {
             List<Road> roads = new List<Road>();
@@ -199,7 +229,12 @@ namespace cmetro25.Services
             return roads;
         }
 
-        // OPTIMIERUNG: Nimmt jetzt den Zoom für die Interpolation als Parameter entgegen
+        /// <summary>
+        /// Transformiert und interpoliert eine Linienfolge basierend auf dem gegebenen Zoomfaktor.
+        /// </summary>
+        /// <param name="lineString">Die zu transformierende und zu interpolierende Linienfolge.</param>
+        /// <param name="road">Die Straße, zu der die Linienfolge gehört.</param>
+        /// <param name="interpolationZoom">Der Zoomfaktor für die Interpolation.</param>
         private void TransformAndInterpolateLineString(List<List<double>> lineString, Road road, float interpolationZoom)
         {
             List<Vector2> convertedLine = new List<Vector2>();
@@ -218,9 +253,13 @@ namespace cmetro25.Services
             // road.LastInterpolationZoom wird jetzt außerhalb gesetzt, nachdem alle Linien geladen wurden
         }
 
+        /// <summary>
+        /// Berechnet die Bounding Box einer Liste von Punkten.
+        /// </summary>
+        /// <param name="points">Die Punkte, für die die Bounding Box berechnet werden soll.</param>
+        /// <returns>Die berechnete Bounding Box.</returns>
         public RectangleF ComputeBoundingBox(List<Vector2> points)
         {
-            // ... (wie bisher) ...
             if (points == null || points.Count == 0) return RectangleF.Empty;
             float minX = points[0].X, minY = points[0].Y;
             float maxX = points[0].X, maxY = points[0].Y;
@@ -234,9 +273,15 @@ namespace cmetro25.Services
             return new RectangleF(minX, minY, maxX - minX, maxY - minY);
         }
 
+        /// <summary>
+        /// Interpoliert eine Linie mit einem bestimmten Überlappungsfaktor basierend auf dem Zoomfaktor.
+        /// </summary>
+        /// <param name="points">Die zu interpolierende Linie.</param>
+        /// <param name="bMd">Der Basis-Maximalabstand für die Interpolation.</param>
+        /// <param name="zoom">Der Zoomfaktor für die Interpolation.</param>
+        /// <returns>Die interpolierte Linie.</returns>
         public List<Vector2> InterpolateLineWithOverlap(List<Vector2> points, float bMd, float zoom)
         {
-            // ... (Logik wie bisher, nutzt übergebenen Zoom) ...
             if (zoom <= 0) zoom = 0.01f; // Sicherheitscheck gegen Division durch Null
 
             // Leichte Anpassung der bMd-Skalierung basierend auf Zoom, kann angepasst werden
@@ -296,14 +341,17 @@ namespace cmetro25.Services
                 if (interpolatedPoints.Count == 0) interpolatedPoints.Add(points[0]);
             }
 
-
             return interpolatedPoints;
         }
 
-
+        /// <summary>
+        /// Transformiert geographische Koordinaten in das lokale Koordinatensystem.
+        /// </summary>
+        /// <param name="x">Die geographische X-Koordinate.</param>
+        /// <param name="y">Die geographische Y-Koordinate.</param>
+        /// <returns>Die transformierte Koordinate im lokalen Koordinatensystem.</returns>
         private Vector2 TransformCoordinates(double x, double y)
         {
-            // ... (wie bisher) ...
             double referenceX = 388418.7;
             double referenceY = 5713965.5;
             double deltaX = x - referenceX;

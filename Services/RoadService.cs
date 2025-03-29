@@ -11,19 +11,25 @@ using System.Threading.Tasks;
 
 namespace cmetro25.Services
 {
+    /// <summary>
+    /// Service-Klasse zur Verwaltung und Verarbeitung von Straßen.
+    /// </summary>
     public class RoadService
     {
         private readonly List<Road> _roads;
         private readonly MapLoader _mapLoader;
         private Quadtree<Road> _roadQuadtree;
-        // private int _visibleLines = 0; // Wird in RoadRenderer gezählt
-
         private readonly object _quadtreeLock = new object();
         private Task _quadtreeUpdateTask;
         private MapCamera _camera; // NEU: Referenz auf die Kamera
         private float _lastInterpolationZoomTriggered = -1f; // NEU: Merkt sich den Zoom des letzten Updates
 
-
+        /// <summary>
+        /// Initialisiert eine neue Instanz der <see cref="RoadService"/> Klasse.
+        /// </summary>
+        /// <param name="roads">Die Liste der Straßen.</param>
+        /// <param name="mapLoader">Der MapLoader zum Laden und Verarbeiten der Kartendaten.</param>
+        /// <exception cref="ArgumentNullException">Wird ausgelöst, wenn <paramref name="roads"/> oder <paramref name="mapLoader"/> null ist.</exception>
         public RoadService(List<Road> roads, MapLoader mapLoader)
         {
             _roads = roads ?? throw new ArgumentNullException(nameof(roads));
@@ -32,12 +38,18 @@ namespace cmetro25.Services
             BuildRoadQuadtree();
         }
 
-        // NEU: Methode zum Setzen der Kamera nach der Initialisierung
+        /// <summary>
+        /// Setzt die Kamera für den RoadService.
+        /// </summary>
+        /// <param name="camera">Die zu setzende Kamera.</param>
         public void SetCamera(MapCamera camera)
         {
             _camera = camera;
         }
 
+        /// <summary>
+        /// Baut den Quadtree für die Straßen neu auf.
+        /// </summary>
         public void BuildRoadQuadtree()
         {
             // Sperren für den Fall, dass dies aus einem anderen Thread aufgerufen wird (obwohl es hier synchron ist)
@@ -48,7 +60,11 @@ namespace cmetro25.Services
             }
         }
 
-        private Quadtree<Road> BuildRoadQuadtreeInternal() // Keine Sperre hier, wird von außen gesperrt
+        /// <summary>
+        /// Interne Methode zum Aufbau des Quadtrees. Diese Methode wird von außen gesperrt.
+        /// </summary>
+        /// <returns>Der neu aufgebaute Quadtree.</returns>
+        private Quadtree<Road> BuildRoadQuadtreeInternal()
         {
             float minX = float.MaxValue, minY = float.MaxValue;
             float maxX = float.MinValue, maxY = float.MinValue;
@@ -90,7 +106,6 @@ namespace cmetro25.Services
             if (overallBounds.Width <= 0) overallBounds.Width = 1;
             if (overallBounds.Height <= 0) overallBounds.Height = 1;
 
-
             Quadtree<Road> newTree = new Quadtree<Road>(overallBounds);
 
             // Füge Straßen basierend auf ihren BoundingBoxes ein
@@ -100,17 +115,17 @@ namespace cmetro25.Services
                 RectangleF roadOverallBox = GetRoadBoundingBox(road);
                 if (!roadOverallBox.IsEmpty) // Nur einfügen, wenn die Straße eine gültige Box hat
                 {
-                    // Füge die Straße mit ihrer Gesamt-Box ein.
-                    // Die Query-Methode muss dann prüfen, ob die *tatsächlichen* Segmente die Query-Area schneiden.
-                    // Alternativ: Jedes Segment einzeln einfügen (kann Baum tiefer machen).
-                    // Wir bleiben erstmal bei der Gesamt-Box pro Straße.
                     newTree.Insert(road, roadOverallBox);
                 }
             }
             return newTree;
         }
 
-
+        /// <summary>
+        /// Aktualisiert die Interpolationen der Straßen asynchron basierend auf dem aktuellen Zoom und den sichtbaren Grenzen.
+        /// </summary>
+        /// <param name="zoom">Der aktuelle Zoomfaktor.</param>
+        /// <param name="visibleBounds">Die sichtbaren Grenzen.</param>
         public void UpdateRoadInterpolationsAsync(float zoom, RectangleF visibleBounds)
         {
             if (_quadtreeUpdateTask != null && !_quadtreeUpdateTask.IsCompleted)
@@ -135,19 +150,12 @@ namespace cmetro25.Services
                     potentiallyVisibleRoads = _roadQuadtree.Query(queryBounds).Distinct().ToList(); // Distinct, falls Straße mehrfach drin ist
                 }
 
-
                 // Parallelisierte Aktualisierung nur für potenziell sichtbare Straßen
                 Parallel.ForEach(potentiallyVisibleRoads, road =>
                 {
                     // Prüfe, ob eine Neuberechnung für diesen Zoom überhaupt nötig ist
-                    // Toleranz kann angepasst werden
                     if (Math.Abs(road.CachedZoom - zoom) < 0.05f)
                     {
-                        // Keine Neuberechnung, aber stelle sicher, dass die aktuellen Linien gesetzt sind
-                        // (könnte durch vorherige Updates geändert worden sein)
-                        // Dies ist eigentlich nicht nötig, wenn der Cache korrekt verwendet wird.
-                        // road.Lines = road.CachedInterpolatedLines;
-                        // road.BoundingBoxes = road.CachedBoundingBoxes;
                         return;
                     }
 
@@ -156,32 +164,25 @@ namespace cmetro25.Services
                     List<RectangleF> newBoxes = new List<RectangleF>();
                     foreach (var originalLine in road.OriginalLines)
                     {
-                        // Stelle sicher, dass originalLine nicht leer ist
                         if (originalLine == null || originalLine.Count == 0) continue;
 
                         List<Vector2> newInterpolatedLine = _mapLoader.InterpolateLineWithOverlap(originalLine, _mapLoader.BaseMaxDistance, zoom);
                         newLines.Add(newInterpolatedLine);
-                        // Berechne BoundingBox nur, wenn die Linie Punkte hat
                         if (newInterpolatedLine.Count > 0)
                             newBoxes.Add(_mapLoader.ComputeBoundingBox(newInterpolatedLine));
                         else
                             newBoxes.Add(RectangleF.Empty); // Leere Box für leere Linien
                     }
 
-                    // Aktualisiere sowohl die "live" als auch die gecachten Werte
-                    // WICHTIG: Direkter Zugriff auf road.Lines etc. in Parallel.ForEach ist okay,
-                    // solange nicht *gleichzeitig* von woanders darauf geschrieben wird.
                     road.Lines = newLines;
                     road.BoundingBoxes = newBoxes;
                     road.LastInterpolationZoom = zoom; // Setze den aktuellen Zoom
-                    // Aktualisiere Cache
                     road.CachedInterpolatedLines = new List<List<Vector2>>(newLines); // Kopien erstellen
                     road.CachedBoundingBoxes = new List<RectangleF>(newBoxes);       // Kopien erstellen
                     road.CachedZoom = zoom;
                     needsRebuild = true; // Markiere, dass der Quadtree neu gebaut werden muss
                 });
 
-                // Baue den Quadtree nur neu, wenn tatsächlich Straßen aktualisiert wurden.
                 if (needsRebuild)
                 {
                     Quadtree<Road> newQuadtree = BuildRoadQuadtreeInternal();
@@ -189,22 +190,27 @@ namespace cmetro25.Services
                     {
                         _roadQuadtree = newQuadtree;
                     }
-                    // Debug.WriteLine("Quadtree rebuilt after interpolation update.");
                 }
             });
         }
 
+        /// <summary>
+        /// Gibt den aktuellen Quadtree zurück.
+        /// </summary>
+        /// <returns>Der aktuelle Quadtree.</returns>
         public Quadtree<Road> GetQuadtree()
         {
             lock (_quadtreeLock)
             {
-                // Gib eine Referenz zurück. Der Aufrufer muss wissen, dass er sie nicht ändern darf
-                // oder muss sie innerhalb eines Locks verwenden, wenn er länger damit arbeitet.
                 return _roadQuadtree;
             }
         }
 
-        // Berechnet die Gesamt-BoundingBox einer Straße aus ihren Segment-Boxen
+        /// <summary>
+        /// Berechnet die Gesamt-BoundingBox einer Straße aus ihren Segment-Boxen.
+        /// </summary>
+        /// <param name="road">Die Straße, für die die BoundingBox berechnet werden soll.</param>
+        /// <returns>Die berechnete BoundingBox.</returns>
         public RectangleF GetRoadBoundingBox(Road road)
         {
             if (road.BoundingBoxes == null || road.BoundingBoxes.Count == 0)
@@ -230,32 +236,13 @@ namespace cmetro25.Services
             return new RectangleF(minX, minY, maxX - minX, maxY - minY);
         }
 
-        // NEU: Methode zum Abrufen des letzten ausgelösten Zooms
+        /// <summary>
+        /// Gibt den Zoomfaktor zurück, bei dem die letzte Interpolation ausgelöst wurde.
+        /// </summary>
+        /// <returns>Der Zoomfaktor der letzten Interpolation.</returns>
         public float GetLastInterpolationZoom()
         {
             return _lastInterpolationZoomTriggered;
         }
-
-
-        // Diese synchrone Methode wird wahrscheinlich nicht mehr benötigt, wenn die asynchrone verwendet wird.
-        // Falls doch, muss sie angepasst werden, um den Quadtree korrekt zu sperren/aktualisieren.
-        /*
-        public void UpdateRoadInterpolations(float zoom)
-        {
-            bool needsRebuild = false;
-            foreach (var road in _roads)
-            {
-                // ... (Interpolationslogik wie in der Async-Version) ...
-                 needsRebuild = true; // Wenn etwas geändert wurde
-            }
-            if (needsRebuild)
-            {
-                 BuildRoadQuadtree(); // Stellt sicher, dass die Sperre intern verwendet wird
-            }
-        }
-        */
-
-        // Wird jetzt im RoadRenderer gezählt
-        // public int GetBoundingBoxRoadLineCount() => _visibleLines;
     }
 }
