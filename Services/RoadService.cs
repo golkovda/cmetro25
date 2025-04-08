@@ -1,4 +1,5 @@
-﻿using cmetro25.Models;
+﻿using cmetro25.Core;
+using cmetro25.Models;
 using cmetro25.Utils;
 using cmetro25.Views; // Für MapCamera
 using Microsoft.Xna.Framework;
@@ -94,7 +95,7 @@ namespace cmetro25.Services
             }
 
             // Füge einen kleinen Puffer hinzu
-            float buffer = 10f;
+            float buffer = GameSettings.QuadtreeRoadServiceBuffer;
             minX -= buffer;
             minY -= buffer;
             maxX += buffer;
@@ -135,6 +136,9 @@ namespace cmetro25.Services
 
             _quadtreeUpdateTask = Task.Run(() =>
             {
+                float pixelBuffer = GameSettings.QuadtreeRoadServiceQueryPixelBuffer;
+                float bufferX = pixelBuffer / Math.Max(0.1f, zoom); // Berechne Welt-Puffer
+                float bufferY = pixelBuffer / Math.Max(0.1f, zoom);
                 bool needsRebuild = false;
                 // OPTIMIERUNG: Frage zuerst den Quadtree nach potenziell sichtbaren Straßen
                 List<Road> potentiallyVisibleRoads;
@@ -143,10 +147,10 @@ namespace cmetro25.Services
                     if (_roadQuadtree == null) return; // Baum noch nicht bereit
                     // Erweitere visibleBounds leicht, um Straßen am Rand sicher zu erwischen
                     RectangleF queryBounds = new RectangleF(
-                        visibleBounds.X - 50 / zoom, // Puffer in Weltkoordinaten
-                        visibleBounds.Y - 50 / zoom,
-                        visibleBounds.Width + 100 / zoom,
-                        visibleBounds.Height + 100 / zoom);
+                        visibleBounds.X - bufferX,
+                        visibleBounds.Y - bufferY,
+                        visibleBounds.Width + 2 * bufferX,
+                        visibleBounds.Height + 2 * bufferY);
                     potentiallyVisibleRoads = _roadQuadtree.Query(queryBounds).Distinct().ToList(); // Distinct, falls Straße mehrfach drin ist
                 }
 
@@ -154,7 +158,7 @@ namespace cmetro25.Services
                 Parallel.ForEach(potentiallyVisibleRoads, road =>
                 {
                     // Prüfe, ob eine Neuberechnung für diesen Zoom überhaupt nötig ist
-                    if (Math.Abs(road.CachedZoom - zoom) < 0.05f)
+                    if (Math.Abs(road.CachedZoom - zoom) < GameSettings.RoadInterpolationZoomThreshold)
                     {
                         return;
                     }

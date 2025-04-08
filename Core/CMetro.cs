@@ -61,26 +61,10 @@ namespace cmetro25.Core
         // --- Zoom-Handling für Road Interpolation ---
         private float _lastZoomForInterpolationUpdate; // Letzter Zoom, bei dem Interpolation ausgelöst wurde
         private double _timeSinceLastSignificantZoomChange = 0.0;
-        private const double ZoomInterpolationUpdateThreshold = 0.2; // Sekunden, die der Zoom stabil sein muss
-        private const float ZoomDifferenceThreshold = 0.05f; // Minimale Zoom-Änderung, um Timer zurückzusetzen
-
-        // --- Konstanten ---
-        private const float BaseMaxDistance = 0.5f; // Für initiale Road-Interpolation
-        private const float BaseOverlapFactor = 0.1f; // Für RoadRenderer
-        private const int CurveSegments = 10; // Für RoadRenderer Smoothing
-        private const float MinTextScale = 0.1f;
-        private const float MaxTextScale = 1.8f;
-        private const float BaseZoomForText = 1.0f;
-        private readonly Color _districtBorderColor = new Color(143, 37, 37);
-        private readonly Color _districtLabelColor = new Color(143, 37, 37);
-        private readonly Color _mapBackgroundColor = new Color(31, 31, 31);
-        private const int TileSize = 4096; // Angepasste Tile-Größe (testen!)
 
         // NEU: Für Kamera-Bewegungserkennung -> Tile-Anforderung
         private Vector2 _lastCameraPositionForTileRequest;
         private float _lastCameraZoomForTileRequest;
-        private const float CameraMoveThresholdForTileRequest = 100f; // Pixel-Bewegungsschwelle
-        private const float CameraZoomThresholdForTileRequest = 0.1f; // Zoom-Änderungsschwelle
 
         /// <summary>
         /// Initialisiert eine neue Instanz der CMetro-Klasse.
@@ -157,7 +141,7 @@ namespace cmetro25.Core
 
                 // 1. MapLoader erstellen (ohne Kamera erstmal)
                 // OPTIMIERUNG: Übergebe den Basis-Zoom für die initiale Interpolation
-                _mapLoader = new MapLoader(BaseMaxDistance, _camera.Zoom); // Nutze initialen Kamera-Zoom
+                _mapLoader = new MapLoader(GameSettings.RoadBaseMaxInterpolationDistance, _camera.Zoom); // Nutze initialen Kamera-Zoom
 
                 // 2. Pfade zu den Daten
                 string basePath = AppContext.BaseDirectory;
@@ -210,10 +194,10 @@ namespace cmetro25.Core
                 Debug.WriteLine("Initializing map components (Renderers, TileManager)...");
                 var stopwatch = Stopwatch.StartNew();
 
-                _districtRenderer = new DistrictRenderer(_pixelTexture, _font, _districtBorderColor, _districtLabelColor, MinTextScale, MaxTextScale, BaseZoomForText);
-                _roadRenderer = new RoadRenderer(_pixelTexture, BaseOverlapFactor, BaseMaxDistance, true, CurveSegments);
-                _tileManager = new TileManager(GraphicsDevice, _districts, _roadService, _mapLoader, _districtRenderer, _roadRenderer, TileSize);
-
+                _districtRenderer = new DistrictRenderer(_pixelTexture, _font, GameSettings.DistrictBorderColor, GameSettings.DistrictLabelColor, GameSettings.MinTextScale, GameSettings.MaxTextScale, GameSettings.BaseZoomForTextScaling);
+                _roadRenderer = new RoadRenderer(_pixelTexture, GameSettings.RoadBaseOverlapFactor, GameSettings.RoadBaseMaxInterpolationDistance, GameSettings.UseRoadSmoothing, GameSettings.RoadCurveSegments);
+                _tileManager = new TileManager(GraphicsDevice, _districts, _roadService, _mapLoader, _districtRenderer, _roadRenderer, GameSettings.TileSize);
+                _lastCameraZoomForTileRequest = _camera.Zoom; // Bleibt gleich, aber die Konstante für den Vergleich kommt aus GameSettings
                 _mapLoader.SetCamera(_camera);
                 _roadService.SetCamera(_camera);
 
@@ -334,7 +318,7 @@ namespace cmetro25.Core
         {
             float currentZoom = _camera.Zoom;
             // Prüfe auf signifikante Zoom-Änderung
-            if (Math.Abs(currentZoom - _lastZoomForInterpolationUpdate) > ZoomDifferenceThreshold)
+            if (Math.Abs(currentZoom - _lastZoomForInterpolationUpdate) > GameSettings.RoadInterpolationZoomThreshold)
             {
                 _timeSinceLastSignificantZoomChange = 0.0; // Reset timer
                 _lastZoomForInterpolationUpdate = currentZoom; // Merke diesen Zoom als "letzten bewegten"
@@ -345,7 +329,7 @@ namespace cmetro25.Core
                 _timeSinceLastSignificantZoomChange += gameTime.ElapsedGameTime.TotalSeconds;
 
                 // Wenn Zoom lange genug stabil war, löse Update aus
-                if (_timeSinceLastSignificantZoomChange >= ZoomInterpolationUpdateThreshold)
+                if (_timeSinceLastSignificantZoomChange >= GameSettings.RoadInterpolationUpdateDebounce)
                 {
                     // Nur auslösen, wenn sich der Zoom seit dem letzten Update tatsächlich geändert hat
                     if (Math.Abs(currentZoom - _roadService.GetLastInterpolationZoom()) > 0.01f) // GetLastInterpolationZoom() in RoadService hinzufügen
@@ -353,7 +337,7 @@ namespace cmetro25.Core
                         RectangleF visibleBounds = CalculateVisibleBounds(100f); // Größerer Puffer für Interpolation
                         _roadService.UpdateRoadInterpolationsAsync(currentZoom, visibleBounds);
                         // Wichtig: Zeit zurücksetzen, damit nicht sofort wieder ausgelöst wird
-                        _timeSinceLastSignificantZoomChange = -ZoomInterpolationUpdateThreshold; // Negativ setzen, um erneutes Auslösen zu verzögern
+                        _timeSinceLastSignificantZoomChange = -GameSettings.RoadInterpolationUpdateDebounce; // Negativ setzen, um erneutes Auslösen zu verzögern
                     }
                 }
             }
@@ -384,10 +368,10 @@ namespace cmetro25.Core
         /// </summary>
         private void CheckCameraMovementAndRequestTiles()
         {
-            bool zoomChanged = Math.Abs(_camera.Zoom - _lastCameraZoomForTileRequest) > CameraZoomThresholdForTileRequest;
+            bool zoomChanged = Math.Abs(_camera.Zoom - _lastCameraZoomForTileRequest) > GameSettings.CameraZoomThresholdForTileRequest;
             // Prüfe Distanz in Weltkoordinaten oder Bildschirmkoordinaten? Bildschirm ist oft intuitiver.
             float cameraMoveDistanceScreen = Vector2.Distance(_camera.WorldToScreen(_lastCameraPositionForTileRequest), _camera.WorldToScreen(_camera.Position));
-            bool positionChanged = cameraMoveDistanceScreen > CameraMoveThresholdForTileRequest;
+            bool positionChanged = cameraMoveDistanceScreen > GameSettings.CameraMoveThresholdForTileRequest;
 
             if (zoomChanged || positionChanged)
             {
@@ -406,7 +390,7 @@ namespace cmetro25.Core
             if (_tileManager != null && _camera != null)
             {
                 int tileZoomLevel = ComputeTileZoomLevel(_camera.Zoom);
-                RectangleF viewBounds = CalculateVisibleBounds(TileSize); // Puffer = 1 Tile-Größe in Pixeln
+                RectangleF viewBounds = CalculateVisibleBounds(GameSettings.TileSize); // Puffer = 1 Tile-Größe in Pixeln
                 _tileManager.RequestTileGeneration(viewBounds, tileZoomLevel);
             }
         }
@@ -417,7 +401,7 @@ namespace cmetro25.Core
         /// <param name="gameTime">Die verstrichene Zeit seit dem letzten Draw-Aufruf.</param>
         protected override void Draw(GameTime gameTime)
         {
-            GraphicsDevice.Clear(_mapBackgroundColor);
+            GraphicsDevice.Clear(GameSettings.MapBackgroundColor);
 
             // --- Ladebildschirm / Fehler ---
             if (_isLoading || !_mapDataReady)
@@ -470,7 +454,7 @@ namespace cmetro25.Core
             int level = (int)Math.Floor(Math.Log(Math.Max(1.0, zoom), 2)); // Log Basis 2
             // Begrenze den Level, z.B. basierend auf TileSize und erwarteter Kartengröße
             // MaxLevel könnte z.B. 8 sein (2^8 = 256 Tiles pro Dimension)
-            int maxLevel = 10; // Beispielwert, anpassen!
+            int maxLevel = GameSettings.MaxTileZoomLevel;
             return Math.Clamp(level, 0, maxLevel);
         }
 

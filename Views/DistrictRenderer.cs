@@ -3,6 +3,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using System.Collections.Generic;
 using System.Linq;
+using cmetro25.Core;
 using cmetro25.Models;
 using cmetro25.Utils;
 using cmetro25.Views; // Für MapCamera
@@ -104,7 +105,7 @@ namespace cmetro25.Views
 
             thickness = Math.Max(0.1f, thickness);
 
-            float overlapFactor = 0.02f; // Klein, nur um Lücken zu füllen
+            float overlapFactor = GameSettings.DistrictPolygonOverlapFactor;
 
             for (var i = 0; i < polygon.Count; i++)
             {

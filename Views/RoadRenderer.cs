@@ -3,7 +3,8 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using System;
 using System.Collections.Generic;
-using System.Linq; // Für Any()  
+using System.Linq;
+using cmetro25.Core; // Für Any()  
 using cmetro25.Models;
 using MonoGame.Extended;
 using cmetro25.Views; // Für MapCamera  
@@ -59,7 +60,8 @@ namespace cmetro25.Views
                     // Prüfe, ob Cache für diese Straße initialisiert werden muss oder veraltet ist  
                     bool needsCacheUpdate = road.CachedSmoothedLines == null ||
                                             road.CachedSmoothedLines.Count != road.Lines.Count ||
-                                            Math.Abs(road.CachedSmoothZoom - currentZoom) > 0.1f; // Zoom-Schwellenwert  
+                                            // Invalidiere Cache häufiger bei Zoomänderung, da Glätte sich ändert
+                                            Math.Abs(road.CachedSmoothZoom - currentZoom) > 0.05f; // Kleinerer Schwellenwert
 
                     if (needsCacheUpdate)
                     {
@@ -73,7 +75,7 @@ namespace cmetro25.Views
                             {
                                 if (road.Lines[j] != null && road.Lines[j].Count >= 2) // Nur für gültige Linien  
                                 {
-                                    road.CachedSmoothedLines[j] = GenerateCatmullRomSpline(road.Lines[j], _curveSegments);
+                                    road.CachedSmoothedLines[j] = GenerateCatmullRomSpline(road.Lines[j], GameSettings.RoadCurveSegments, currentZoom);
                                 }
                                 else
                                 {
@@ -132,17 +134,18 @@ namespace cmetro25.Views
             float baseWidth;
             switch (roadType)
             {
-                case "motorway": baseWidth = 5f; color = Color.DarkOrange; break;
-                case "primary": case "trunk": baseWidth = 4f; color = Color.DarkGoldenrod; break;
-                case "secondary": case "tertiary": baseWidth = 3f; color = Color.LightGray; break; // Etwas breiter gemacht  
-                case "residential": case "unclassified": baseWidth = 2f; color = Color.Gray; break;
-                default: baseWidth = 1.5f; color = Color.DarkGray; break; // Schmaler für unbekannte/kleinere  
+                case "motorway": baseWidth = GameSettings.RoadWidthMotorway; color = GameSettings.RoadColorMotorway; break;
+                case "primary": case "trunk": baseWidth = GameSettings.RoadWidthPrimaryTrunk; color = GameSettings.RoadColorPrimaryTrunk; break;
+                case "secondary": case "tertiary": baseWidth = GameSettings.RoadWidthSecondaryTertiary; color = GameSettings.RoadColorSecondaryTertiary; break;
+                case "residential": case "unclassified": baseWidth = GameSettings.RoadWidthResidentialUnclassified; color = GameSettings.RoadColorResidentialUnclassified; break;
+                default: baseWidth = GameSettings.RoadWidthDefault; color = GameSettings.RoadColorDefault; break;
             }
 
             // Skaliere Breite mit inverser Wurzel des Zooms (weniger starke Skalierung als 1/Zoom)  
             width = baseWidth / MathF.Sqrt(Math.Max(0.1f, zoom));
             // Setze Mindest- und Maximalbreite in Pixeln (unabhängig vom Zoom)  
-            width = Math.Clamp(width, 0.5f, 15f); // Mindestens 0.5 Pixel, maximal 15 Pixel breit  
+            width = Math.Clamp(width, GameSettings.RoadMinPixelWidth, GameSettings.RoadMaxPixelWidth);
+
         }
 
         /// <summary>  
@@ -157,6 +160,9 @@ namespace cmetro25.Views
         {
             if (smoothedPoints.Count < 2) return;
 
+            // Kleiner Überlappungsfaktor (ähnlich wie in DrawPolyline)
+            float overlap = GameSettings.RoadDrawPolylineOverlap; // Verwende die Einstellung
+
             for (int i = 0; i < smoothedPoints.Count - 1; i++)
             {
                 Vector2 p1 = smoothedPoints[i];
@@ -164,11 +170,16 @@ namespace cmetro25.Views
                 Vector2 direction = p2 - p1;
                 float distance = direction.Length();
 
-                if (distance < 0.01f) continue; // Überspringe Nulllängen-Segmente  
+                if (distance < 0.01f) continue;
 
                 float angle = (float)Math.Atan2(direction.Y, direction.X);
 
-                spriteBatch.Draw(_pixelTexture, p1, null, color, angle, Vector2.Zero, new Vector2(distance, thickness), SpriteEffects.None, 0);
+                // Füge Overlap hinzu (wie in DrawPolyline)
+                Vector2 p2_overlapped = p2 + direction * (overlap / distance);
+                float drawDistance = Vector2.Distance(p1, p2_overlapped);
+
+                // Zeichne mit drawDistance statt distance
+                spriteBatch.Draw(_pixelTexture, p1, null, color, angle, Vector2.Zero, new Vector2(drawDistance, thickness), SpriteEffects.None, 0);
             }
         }
 
@@ -178,11 +189,18 @@ namespace cmetro25.Views
         /// <param name="points">Die Liste der Punkte.</param>  
         /// <param name="segmentsPerCurve">Die Anzahl der Segmente pro Kurve.</param>  
         /// <returns>Die Liste der interpolierten Punkte.</returns>  
-        private List<Vector2> GenerateCatmullRomSpline(List<Vector2> points, int segmentsPerCurve)
+        private List<Vector2> GenerateCatmullRomSpline(List<Vector2> points, int segmentsPerCurve, float zoom)
         {
             List<Vector2> splinePoints = new List<Vector2>();
             if (points.Count < 2)
                 return points; // Keine Glättung möglich  
+
+            // Erhöhe die Segmentanzahl bei höherem Zoom.
+            // MathF.Sqrt reduziert den Effekt bei sehr hohem Zoom etwas. Experimentiere hier!
+            // Mindestens baseSegments, maximal z.B. das 5-fache (anpassen!)
+            float zoomFactor = MathF.Sqrt(Math.Max(1f, zoom)); // Faktor basierend auf Zoom (mind. 1)
+            int dynamicSegments = (int)Math.Ceiling(segmentsPerCurve * zoomFactor);
+            dynamicSegments = Math.Clamp(dynamicSegments, segmentsPerCurve, segmentsPerCurve * 5); // Begrenzen!
 
             // Füge den ersten Punkt hinzu  
             splinePoints.Add(points[0]);
@@ -248,7 +266,7 @@ namespace cmetro25.Views
         {
             if (polyline.Count < 2) return;
 
-            float overlap = 0.1f; // Kleiner Pixel-Overlap  
+            float overlap = GameSettings.RoadDrawPolylineOverlap;
 
             for (int i = 0; i < polyline.Count - 1; i++)
             {

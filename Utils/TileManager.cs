@@ -10,6 +10,7 @@ using System.Collections.Concurrent; // NEU: Für ConcurrentQueue/Dictionary
 using cmetro25.Models;
 using cmetro25.Services;
 using cmetro25.Views;
+using cmetro25.Core;
 
 namespace cmetro25.Utils
 {
@@ -28,14 +29,12 @@ namespace cmetro25.Utils
         private Dictionary<(int zoom, int tileX, int tileY), RenderTarget2D> _tileCache;
         private DistrictRenderer _districtRenderer;
         private RoadRenderer _roadRenderer;
-        private Color _tileBackgroundColor = new Color(31, 31, 31);
 
         // --- NEU: Für Queued Generation ---
         private readonly ConcurrentQueue<(int zoom, int x, int y)> _tileGenerationQueue = new();
         // ConcurrentDictionary wird als thread-sicheres Set verwendet, um doppelte Einträge in der Queue zu vermeiden. Der bool-Wert ist irrelevant.
         private readonly ConcurrentDictionary<(int zoom, int x, int y), bool> _queuedOrProcessingKeys = new();
         private Task _tileRequestTask = Task.CompletedTask; // Task zur Verwaltung der Anfragen
-        private const int MaxTilesToGeneratePerFrame = 2; // Wieviele Tiles max. pro Update generiert werden
 
         /// <summary>
         /// Initialisiert eine neue Instanz der <see cref="TileManager"/> Klasse.
@@ -47,7 +46,7 @@ namespace cmetro25.Utils
         /// <param name="dr">Der DistrictRenderer zum Rendern der Distrikte.</param>
         /// <param name="rr">Der RoadRenderer zum Rendern der Straßen.</param>
         /// <param name="tileSize">Die Größe der Kacheln in Pixeln.</param>
-        public TileManager(GraphicsDevice graphicsDevice, List<District> districts, RoadService roadService, MapLoader mapLoader, DistrictRenderer dr, RoadRenderer rr, int tileSize = 512)
+        public TileManager(GraphicsDevice graphicsDevice, List<District> districts, RoadService roadService, MapLoader mapLoader, DistrictRenderer dr, RoadRenderer rr, int tileSize)
         {
             _graphicsDevice = graphicsDevice;
             _districts = districts;
@@ -150,7 +149,7 @@ namespace cmetro25.Utils
                     RenderTargetUsage.DiscardContents); // DiscardContents ist oft performanter
 
                 _graphicsDevice.SetRenderTarget(tileRT);
-                _graphicsDevice.Clear(_tileBackgroundColor);
+                _graphicsDevice.Clear(GameSettings.TileBackgroundColor);
 
                 int numTiles = 1 << zoom;
                 if (_mapBounds.Width <= 0 || _mapBounds.Height <= 0) throw new InvalidOperationException("Invalid map bounds");
@@ -160,28 +159,52 @@ namespace cmetro25.Utils
                 float tileWorldX = _mapBounds.X + tileX * tileWorldWidth;
                 float tileWorldY = _mapBounds.Y + tileY * tileWorldHeight;
                 RectangleF tileWorldBounds = new RectangleF(tileWorldX, tileWorldY, tileWorldWidth, tileWorldHeight);
-
                 MapCamera tileCamera = new MapCamera(_tileSize, _tileSize);
                 tileCamera.Zoom = _tileSize / tileWorldWidth;
                 tileCamera.CenterOn(new Vector2(tileWorldX + tileWorldWidth / 2, tileWorldY + tileWorldHeight / 2));
 
-                List<District> districtsInTile = QueryDistrictsInBounds(tileWorldBounds);
-                List<Road> roadsInTile = _roadService.GetQuadtree()?.Query(tileWorldBounds).Distinct().ToList() ?? new List<Road>();
+                // --- NEU: Dynamischer Query-Puffer ---
+                // Berechne den Puffer basierend auf der maximalen Straßenbreite in Pixeln
+                // und dem Zoom der Tile-Kamera, plus einem festen Puffer für Smoothing.
+                float maxThicknessInWorld = (GameSettings.RoadMaxPixelWidth / tileCamera.Zoom); // Maximale Dicke in Weltkoordinaten
+                float thicknessBuffer = maxThicknessInWorld / 2.0f; // Hälfte für jede Seite
+                float smoothingBuffer = 15f; // Fester Puffer für Smoothing-Abweichung (Weltkoordinaten, anpassen!)
+                float queryBuffer = thicknessBuffer + smoothingBuffer;
+
+                // Stelle sicher, dass der Puffer nicht negativ wird (falls Zoom extrem hoch ist)
+                queryBuffer = Math.Max(10f, queryBuffer); // Mindestens 5 Welt-Einheiten Puffer
+
+                RectangleF queryBounds = new RectangleF(
+                    tileWorldBounds.X - queryBuffer,
+                    tileWorldBounds.Y - queryBuffer,
+                    tileWorldBounds.Width + 2 * queryBuffer,
+                    tileWorldBounds.Height + 2 * queryBuffer);
+                // --- Ende NEU ---
+
+                // Verwende queryBounds für die Abfragen
+                List<District> districtsInTile = QueryDistrictsInBounds(queryBounds);
+                List<Road> roadsInTile = _roadService.GetQuadtree()?.Query(queryBounds).Distinct().ToList() ?? new List<Road>();
 
                 using (SpriteBatch sb = new SpriteBatch(_graphicsDevice))
                 {
                     // Zeichne Polygone
                     sb.Begin(transformMatrix: tileCamera.TransformMatrix, samplerState: SamplerState.AnisotropicClamp);
+                    // WICHTIG: Die Renderer selbst müssen innerhalb der tileWorldBounds clippen,
+                    // falls sie Objekte zeichnen, die durch den Puffer hereingekommen sind,
+                    // aber eigentlich nicht auf das Tile gehören. SpriteBatch macht das aber
+                    // normalerweise automatisch durch das RenderTarget.
                     _districtRenderer.DrawPolygons(sb, districtsInTile, tileCamera);
                     sb.End();
 
                     // Zeichne Straßen
                     sb.Begin(transformMatrix: tileCamera.TransformMatrix, samplerState: SamplerState.AnisotropicClamp);
+                    // Übergib die *originalen* tileWorldBounds an den RoadRenderer, falls er sie
+                    // für internes Culling oder andere Logik benötigt.
                     _roadRenderer.Draw(sb, roadsInTile, tileWorldBounds, tileCamera);
                     sb.End();
 
-                    // Zeichne Labels (separat, über Straßen)
-                    _districtRenderer.DrawLabels(sb, districtsInTile, tileCamera); // Hat eigenes Begin/End
+                    // Zeichne Labels
+                    _districtRenderer.DrawLabels(sb, districtsInTile, tileCamera);
                 }
 
                 _graphicsDevice.SetRenderTarget(null);
@@ -231,7 +254,7 @@ namespace cmetro25.Utils
                 float tileWorldHeight = _mapBounds.Height / numTiles;
 
                 // Berechne benötigte Tile-Indizes mit Puffer
-                int buf = 1; // Puffer von 1 Kachel um den sichtbaren Bereich
+                int buf = GameSettings.TileGenerationBuffer;
                 int minTileX = Math.Max(0, (int)Math.Floor((area.Left - _mapBounds.Left) / tileWorldWidth) - buf);
                 int maxTileX = Math.Min(numTiles - 1, (int)Math.Ceiling((area.Right - _mapBounds.Left) / tileWorldWidth) + buf);
                 int minTileY = Math.Max(0, (int)Math.Floor((area.Top - _mapBounds.Top) / tileWorldHeight) - buf);
@@ -267,7 +290,7 @@ namespace cmetro25.Utils
         public void ProcessTileGenerationQueue()
         {
             int processedCount = 0;
-            while (processedCount < MaxTilesToGeneratePerFrame && _tileGenerationQueue.TryDequeue(out var keyToGenerate))
+            while (processedCount < GameSettings.MaxTilesToGeneratePerFrame && _tileGenerationQueue.TryDequeue(out var keyToGenerate))
             {
                 // Erneute Prüfung im Hauptthread, ob es zwischenzeitlich generiert wurde
                 if (!_tileCache.ContainsKey(keyToGenerate))

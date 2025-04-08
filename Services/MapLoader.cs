@@ -8,6 +8,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq; // Für Min/Max benötigt
 using MonoGame.Extended;
+using cmetro25.Core;
 
 namespace cmetro25.Services
 {
@@ -322,7 +323,7 @@ namespace cmetro25.Services
                 if (direction.LengthSquared() > 0.001f) // Nur wenn Richtung gültig ist
                 {
                     direction.Normalize();
-                    float baseOverlapFactor = 0.1f; // Kann angepasst werden
+                    float baseOverlapFactor = GameSettings.RoadBaseOverlapFactor;
                     // Skaliere Overlap invers zum Zoom, aber begrenze ihn nach unten
                     float adjustedOverlap = Math.Max(0.5f, baseOverlapFactor / zoom);
                     Vector2 overlappedP2 = pEnd + direction * adjustedOverlap;
@@ -352,11 +353,11 @@ namespace cmetro25.Services
         /// <returns>Die transformierte Koordinate im lokalen Koordinatensystem.</returns>
         private Vector2 TransformCoordinates(double x, double y)
         {
-            double referenceX = 388418.7;
-            double referenceY = 5713965.5;
+            double referenceX = GameSettings.ReferenceCoordX;
+            double referenceY = GameSettings.ReferenceCoordY;
             double deltaX = x - referenceX;
             double deltaY = y - referenceY;
-            float scaleFactor = 0.1f;
+            float scaleFactor = GameSettings.CoordScaleFactor;
             float transformedX = (float)(deltaX * scaleFactor);
             float transformedY = (float)(-deltaY * scaleFactor);
             return new Vector2(transformedX, transformedY);

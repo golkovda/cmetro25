@@ -1,4 +1,5 @@
-﻿using Microsoft.Xna.Framework;
+﻿using cmetro25.Core;
+using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Input;
 using MonoGame.Extended;
 
@@ -45,7 +46,7 @@ namespace cmetro25.Views
         public float Zoom
         {
             get => _zoom;
-            set { _zoom = MathHelper.Clamp(value, 0.3f, 30f); UpdateTransformMatrix(); }
+            set { _zoom = MathHelper.Clamp(value, GameSettings.CameraZoomMin, GameSettings.CameraZoomMax); UpdateTransformMatrix(); }
         }
 
         /// <summary>
@@ -87,9 +88,9 @@ namespace cmetro25.Views
 
             int scrollDelta = mouseState.ScrollWheelValue - _previousScrollWheelValue;
             if (scrollDelta > 0)
-                Zoom *= 1.1f;
+                Zoom *= GameSettings.CameraZoomStepFactor;
             else if (scrollDelta < 0)
-                Zoom *= 0.9f;
+                Zoom /= GameSettings.CameraZoomStepFactor;
             _previousScrollWheelValue = mouseState.ScrollWheelValue;
 
             if (mouseState.MiddleButton == ButtonState.Pressed || (mouseState.LeftButton == ButtonState.Pressed && keyboardState.IsKeyDown(Keys.LeftShift)))
