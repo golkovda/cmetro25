@@ -29,6 +29,10 @@ namespace cmetro25.Core
         // --- Daten (werden asynchron geladen) ---
         private List<District> _districts;
         private List<Road> _roads;
+        private List<WaterBody> _waterBodies;
+        private List<PolylineElement> _rails;
+        private List<PolylineElement> _rivers;
+        private List<PointElement> _stations;
 
         // --- Services und Renderer (werden nach dem Laden initialisiert) ---
         private MapLoader _mapLoader;
@@ -36,6 +40,7 @@ namespace cmetro25.Core
         private DistrictRenderer _districtRenderer;
         private RoadRenderer _roadRenderer;
         private TileManager _tileManager;
+        private WaterBodyRenderer _waterBodyRenderer;
 
         // --- UI & Grundlegende Komponenten ---
         private PerformanceUI _performanceUI;
@@ -145,8 +150,13 @@ namespace cmetro25.Core
 
                 // 2. Pfade zu den Daten
                 string basePath = AppContext.BaseDirectory;
-                string districtPath = Path.Combine(basePath, "GeoJson", "dortmund_boundaries_census_finished.geojson");
-                string roadPath = Path.Combine(basePath, "GeoJson", "dortmund_roads_finished.geojson");
+                string districtPath = GameSettings.DistrictGeoJsonPath; // NEU: Verwende GameSettings
+                string roadPath = GameSettings.RoadGeoJsonPath; // NEU: Verwende GameSettings
+                string waterPath = GameSettings.WaterGeoJsonPath;    // NEU: Verwende GameSettings
+                string railPath = GameSettings.RailsGeoJsonPath;    // NEU: Verwende GameSettings
+                string riverPath = GameSettings.RiversGeoJsonPath;    // NEU: Verwende GameSettings
+                string stationPath = GameSettings.StationsGeoJsonPath;    // NEU: Verwende GameSettings
+
 
                 // 3. Daten laden und verarbeiten (dies dauert am längsten)
                 Debug.WriteLine("Loading districts...");
@@ -156,6 +166,29 @@ namespace cmetro25.Core
                 Debug.WriteLine("Loading roads...");
                 _roads = _mapLoader.LoadRoads(roadPath);
                 Debug.WriteLine($"Roads loaded: {_roads?.Count ?? 0}");
+
+                Debug.WriteLine("Loading water bodies...");
+                _waterBodies = _mapLoader.LoadWaterBodies(waterPath);
+                Debug.WriteLine($"Water bodies loaded: {_waterBodies?.Count ?? 0}");
+
+                Debug.WriteLine("Loading rails...");
+                _rails = _mapLoader.LoadRails(railPath);
+                Debug.WriteLine($"Rails loaded: {_rails?.Count ?? 0}");
+
+                Debug.WriteLine("Loading rivers...");
+                _rivers = _mapLoader.LoadRivers(riverPath);
+                Debug.WriteLine($"Rivers loaded: {_rivers?.Count ?? 0}");
+
+                Debug.WriteLine("Loading stations...");
+                _stations = _mapLoader.LoadStations(stationPath);
+                Debug.WriteLine($"Stations loaded: {_stations?.Count ?? 0}");
+
+                if (_waterBodies == null)
+                {
+                    // Optional: Fehler werfen oder nur loggen, wenn Wasser optional ist
+                    Debug.WriteLine("[Warning] Failed to load water body data.");
+                    _waterBodies = new List<WaterBody>(); // Leere Liste, um NullPointer zu vermeiden
+                }
 
                 if (_districts == null || _roads == null)
                 {
@@ -196,7 +229,10 @@ namespace cmetro25.Core
 
                 _districtRenderer = new DistrictRenderer(_pixelTexture, _font, GameSettings.DistrictBorderColor, GameSettings.DistrictLabelColor, GameSettings.MinTextScale, GameSettings.MaxTextScale, GameSettings.BaseZoomForTextScaling);
                 _roadRenderer = new RoadRenderer(_pixelTexture, GameSettings.RoadBaseOverlapFactor, GameSettings.RoadBaseMaxInterpolationDistance, GameSettings.UseRoadSmoothing, GameSettings.RoadCurveSegments);
-                _tileManager = new TileManager(GraphicsDevice, _districts, _roadService, _mapLoader, _districtRenderer, _roadRenderer, GameSettings.TileSize);
+                _waterBodyRenderer = new WaterBodyRenderer(GraphicsDevice, GameSettings.WaterBodyColor);
+
+                _tileManager = new TileManager(GraphicsDevice, _districts, _waterBodies, _roadService, _mapLoader, _districtRenderer, _roadRenderer, _waterBodyRenderer, GameSettings.TileSize, _pixelTexture, _rivers, _rails, _stations);
+                
                 _lastCameraZoomForTileRequest = _camera.Zoom; // Bleibt gleich, aber die Konstante für den Vergleich kommt aus GameSettings
                 _mapLoader.SetCamera(_camera);
                 _roadService.SetCamera(_camera);

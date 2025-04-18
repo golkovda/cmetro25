@@ -29,6 +29,12 @@ namespace cmetro25.Utils
         private Dictionary<(int zoom, int tileX, int tileY), RenderTarget2D> _tileCache;
         private DistrictRenderer _districtRenderer;
         private RoadRenderer _roadRenderer;
+        private List<WaterBody> _waterBodies;
+        private WaterBodyRenderer _waterBodyRenderer;
+        private List<PolylineElement> _rivers, _rails;
+        private List<PointElement> _stations;
+        private PolylineRenderer _polyRenderer;
+        private StationRenderer _stationRenderer;
 
         // --- NEU: Für Queued Generation ---
         private readonly ConcurrentQueue<(int zoom, int x, int y)> _tileGenerationQueue = new();
@@ -46,7 +52,7 @@ namespace cmetro25.Utils
         /// <param name="dr">Der DistrictRenderer zum Rendern der Distrikte.</param>
         /// <param name="rr">Der RoadRenderer zum Rendern der Straßen.</param>
         /// <param name="tileSize">Die Größe der Kacheln in Pixeln.</param>
-        public TileManager(GraphicsDevice graphicsDevice, List<District> districts, RoadService roadService, MapLoader mapLoader, DistrictRenderer dr, RoadRenderer rr, int tileSize)
+        public TileManager(GraphicsDevice graphicsDevice, List<District> districts, List<WaterBody> waterBodies, RoadService roadService, MapLoader mapLoader, DistrictRenderer dr, RoadRenderer rr, WaterBodyRenderer wbRenderer, int tileSize, Texture2D pixelTexture, List<PolylineElement> rivers, List<PolylineElement> rails, List<PointElement> stations)
         {
             _graphicsDevice = graphicsDevice;
             _districts = districts;
@@ -56,56 +62,91 @@ namespace cmetro25.Utils
             _tileCache = new Dictionary<(int, int, int), RenderTarget2D>();
             _districtRenderer = dr;
             _roadRenderer = rr;
+            _waterBodies = waterBodies;
+            _waterBodyRenderer = wbRenderer;
+            _polyRenderer = new PolylineRenderer(pixelTexture);
+            _stationRenderer = new StationRenderer(pixelTexture);
+            _rivers = rivers;
+            _rails = rails;
+            _stations = stations;
             _mapBounds = ComputeGlobalMapBounds();
             Debug.WriteLine($"Global Map Bounds: {_mapBounds}");
         }
 
         /// <summary>
-        /// Berechnet die globalen Kartenbegrenzungen basierend auf den Distrikten und Straßen.
+        /// Ermittelt die globalen Karten­grenzen, indem alle bislang
+        /// bekannten Geometrien (Distrikte, Straßen, Wasser, Flüsse,
+        /// Gleise und Stationen) berücksichtigt werden.
         /// </summary>
-        /// <returns>Die berechneten globalen Kartenbegrenzungen.</returns>
         private RectangleF ComputeGlobalMapBounds()
         {
             float minX = float.MaxValue, minY = float.MaxValue;
             float maxX = float.MinValue, maxY = float.MinValue;
-            bool hasBounds = false;
+            bool hasData = false;
 
-            foreach (var district in _districts)
+            /* ---------- kleine Inliner‑Hilfsfunktionen ---------- */
+            void Extend(Vector2 p)
             {
-                if (!district.BoundingBox.IsEmpty)
-                {
-                    if (district.BoundingBox.Left < minX) minX = district.BoundingBox.Left;
-                    if (district.BoundingBox.Top < minY) minY = district.BoundingBox.Top;
-                    if (district.BoundingBox.Right > maxX) maxX = district.BoundingBox.Right;
-                    if (district.BoundingBox.Bottom > maxY) maxY = district.BoundingBox.Bottom;
-                    hasBounds = true;
-                }
+                if (p.X < minX) minX = p.X;
+                if (p.Y < minY) minY = p.Y;
+                if (p.X > maxX) maxX = p.X;
+                if (p.Y > maxY) maxY = p.Y;
+                hasData = true;
             }
 
-            var quadtree = _roadService.GetQuadtree();
-            if (quadtree != null && !quadtree.Bounds.IsEmpty)
+            void ExtendRect(in RectangleF r)
             {
-                RectangleF roadBounds = quadtree.Bounds;
-                if (roadBounds.Left < minX) minX = roadBounds.Left;
-                if (roadBounds.Top < minY) minY = roadBounds.Top;
-                if (roadBounds.Right > maxX) maxX = roadBounds.Right;
-                if (roadBounds.Bottom > maxY) maxY = roadBounds.Bottom;
-                hasBounds = true;
+                if (r.IsEmpty) return;
+                Extend(new Vector2(r.Left, r.Top));
+                Extend(new Vector2(r.Right, r.Bottom));
             }
+            /* ---------------------------------------------------- */
 
-            if (!hasBounds) return new RectangleF(0, 0, 1000, 1000);
+            // Distrikte
+            foreach (var d in _districts)
+                ExtendRect(d.BoundingBox);
 
+            // Straßen  –  am einfachsten über den Quadtree, falls schon vorhanden
+            var roadTree = _roadService?.GetQuadtree();
+            if (roadTree != null && !roadTree.Bounds.IsEmpty)
+                ExtendRect(roadTree.Bounds);
+
+            // Wasserflächen
+            foreach (var wb in _waterBodies)
+                ExtendRect(wb.BoundingBox);
+
+            // Flüsse & Gleise
+            foreach (var rv in _rivers)
+                foreach (var box in rv.BoundingBoxes)
+                    ExtendRect(box);
+
+            foreach (var rl in _rails)
+                foreach (var box in rl.BoundingBoxes)
+                    ExtendRect(box);
+
+            // Stationen (Punkte)
+            foreach (var st in _stations)
+                Extend(st.Position);
+
+            /* ---------- Fallback, falls gar nichts gefunden wurde ---------- */
+            if (!hasData)
+                return new RectangleF(0, 0, 1000, 1000);
+
+            /* ---------- Quadrat + Puffer, wie zuvor ---------- */
             float width = maxX - minX;
             float height = maxY - minY;
+
             if (width > height) { float diff = width - height; minY -= diff * 0.5f; height = width; }
-            else if (height > width) { float diff = height - width; minX -= diff * 0.5f; width = height; }
+            if (height > width) { float diff = height - width; minX -= diff * 0.5f; width = height; }
 
-            float buffer = 50f;
-            minX -= buffer; minY -= buffer; width += 2 * buffer; height += 2 * buffer;
+            const float buffer = 50f;
+            minX -= buffer; minY -= buffer;
+            width += buffer * 2; height += buffer * 2;
 
-            return new RectangleF(minX, minY, Math.Max(1, width), Math.Max(1, height));
+            return new RectangleF(minX, minY,
+                                  Math.Max(1, width),
+                                  Math.Max(1, height));
         }
-
         /// <summary>
         /// Liefert ein vorhandenes Tile oder null, wenn es noch nicht generiert wurde.
         /// </summary>
@@ -152,7 +193,8 @@ namespace cmetro25.Utils
                 _graphicsDevice.Clear(GameSettings.TileBackgroundColor);
 
                 int numTiles = 1 << zoom;
-                if (_mapBounds.Width <= 0 || _mapBounds.Height <= 0) throw new InvalidOperationException("Invalid map bounds");
+                if (_mapBounds.Width <= 0 || _mapBounds.Height <= 0)
+                    throw new InvalidOperationException("Invalid map bounds");
 
                 float tileWorldWidth = _mapBounds.Width / numTiles;
                 float tileWorldHeight = _mapBounds.Height / numTiles;
@@ -166,7 +208,8 @@ namespace cmetro25.Utils
                 // --- NEU: Dynamischer Query-Puffer ---
                 // Berechne den Puffer basierend auf der maximalen Straßenbreite in Pixeln
                 // und dem Zoom der Tile-Kamera, plus einem festen Puffer für Smoothing.
-                float maxThicknessInWorld = (GameSettings.RoadMaxPixelWidth / tileCamera.Zoom); // Maximale Dicke in Weltkoordinaten
+                float maxThicknessInWorld =
+                    (GameSettings.RoadMaxPixelWidth / tileCamera.Zoom); // Maximale Dicke in Weltkoordinaten
                 float thicknessBuffer = maxThicknessInWorld / 2.0f; // Hälfte für jede Seite
                 float smoothingBuffer = 15f; // Fester Puffer für Smoothing-Abweichung (Weltkoordinaten, anpassen!)
                 float queryBuffer = thicknessBuffer + smoothingBuffer;
@@ -183,28 +226,52 @@ namespace cmetro25.Utils
 
                 // Verwende queryBounds für die Abfragen
                 List<District> districtsInTile = QueryDistrictsInBounds(queryBounds);
-                List<Road> roadsInTile = _roadService.GetQuadtree()?.Query(queryBounds).Distinct().ToList() ?? new List<Road>();
+                List<Road> roadsInTile = _roadService.GetQuadtree()?.Query(queryBounds).Distinct().ToList() ??
+                                         new List<Road>();
+                List<WaterBody> waterBodiesInTile = QueryWaterBodiesInBounds(queryBounds); // NEU
+                var riversInTile = _rivers.Where(r => r.BoundingBoxes.Any(b => b.Intersects(queryBounds))).ToList();
+                var railsInTile = _rails.Where(r => r.BoundingBoxes.Any(b => b.Intersects(queryBounds))).ToList();
+                var stationsInTile = _stations.Where(s => queryBounds.Contains(s.Position)).ToList();
+
+                // --- Wasserflächen direkt mit GraphicsDevice zeichnen ---
+                // Setze RenderStates für BasicEffect (optional, aber zur Sicherheit)
+                _graphicsDevice.BlendState = BlendState.Opaque; // Wasser ist opak
+                _graphicsDevice.DepthStencilState = DepthStencilState.None;
+                _graphicsDevice.RasterizerState = RasterizerState.CullCounterClockwise;
+                _waterBodyRenderer.Draw(waterBodiesInTile, tileCamera);
+
+                // --- NEU: GraphicsDevice-Zustände für SpriteBatch zurücksetzen ---
+                _graphicsDevice.BlendState = BlendState.AlphaBlend; // Standard für SpriteBatch
+                _graphicsDevice.DepthStencilState = DepthStencilState.None; // Standard für SpriteBatch (2D)
+                _graphicsDevice.RasterizerState = RasterizerState.CullCounterClockwise; // Standard für SpriteBatch
+                _graphicsDevice.SamplerStates[0] = SamplerState.LinearClamp; // Standard-Sampler für SpriteBatch (wird von Begin oft überschrieben, aber schadet nicht)
+                                                                             // --- Ende NEU ---
 
                 using (SpriteBatch sb = new SpriteBatch(_graphicsDevice))
                 {
-                    // Zeichne Polygone
+                    // Zeichne Distrikt-Polygone
                     sb.Begin(transformMatrix: tileCamera.TransformMatrix, samplerState: SamplerState.AnisotropicClamp);
-                    // WICHTIG: Die Renderer selbst müssen innerhalb der tileWorldBounds clippen,
-                    // falls sie Objekte zeichnen, die durch den Puffer hereingekommen sind,
-                    // aber eigentlich nicht auf das Tile gehören. SpriteBatch macht das aber
-                    // normalerweise automatisch durch das RenderTarget.
                     _districtRenderer.DrawPolygons(sb, districtsInTile, tileCamera);
                     sb.End();
 
                     // Zeichne Straßen
                     sb.Begin(transformMatrix: tileCamera.TransformMatrix, samplerState: SamplerState.AnisotropicClamp);
-                    // Übergib die *originalen* tileWorldBounds an den RoadRenderer, falls er sie
-                    // für internes Culling oder andere Logik benötigt.
                     _roadRenderer.Draw(sb, roadsInTile, tileWorldBounds, tileCamera);
                     sb.End();
 
-                    // Zeichne Labels
-                    _districtRenderer.DrawLabels(sb, districtsInTile, tileCamera);
+                    // Linien
+                    sb.Begin(transformMatrix: tileCamera.TransformMatrix, samplerState: SamplerState.AnisotropicClamp);
+                    _polyRenderer.Draw(sb, riversInTile, tileWorldBounds, tileCamera);
+                    _polyRenderer.Draw(sb, railsInTile, tileWorldBounds, tileCamera);
+                    sb.End();
+
+                    // Stationen (über alles drüber)
+                    sb.Begin(transformMatrix: tileCamera.TransformMatrix);
+                    _stationRenderer.Draw(sb, stationsInTile, tileCamera);
+                    sb.End();
+
+                    // Zeichne Distrikt-Labels (über Straßen)
+                    _districtRenderer.DrawLabels(sb, districtsInTile, tileCamera); // Hat eigenes Begin/End
                 }
 
                 _graphicsDevice.SetRenderTarget(null);
@@ -387,6 +454,22 @@ namespace cmetro25.Utils
                 if (district.BoundingBox.Intersects(bounds))
                 {
                     result.Add(district);
+                }
+            }
+            return result;
+        }
+
+        private List<WaterBody> QueryWaterBodiesInBounds(RectangleF bounds)
+        {
+            List<WaterBody> result = new List<WaterBody>();
+            if (_waterBodies == null) return result; // Sicherheitscheck
+
+            foreach (var wb in _waterBodies)
+            {
+                // Prüfe, ob die BoundingBox die Abfragegrenzen schneidet
+                if (wb.BoundingBox.Intersects(bounds))
+                {
+                    result.Add(wb);
                 }
             }
             return result;

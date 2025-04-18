@@ -1,4 +1,6 @@
-﻿using Microsoft.Xna.Framework;
+﻿using System;
+using System.IO;
+using Microsoft.Xna.Framework;
 
 namespace cmetro25.Core // Oder z.B. cmetro25.Settings
 {
@@ -99,6 +101,8 @@ namespace cmetro25.Core // Oder z.B. cmetro25.Settings
         public static readonly Color MapBackgroundColor = new Color(31, 31, 31);
         /// <summary>Hintergrundfarbe für generierte Kacheln.</summary>
         public static readonly Color TileBackgroundColor = new Color(31, 31, 31);
+        public static readonly Color WaterBodyColor = new Color(113, 153, 235); //NOTE: Blau
+        public static readonly Color RailColor = Color.Magenta; //NOTE: Grau
         #endregion
 
         #region Quadtree Settings
@@ -110,6 +114,17 @@ namespace cmetro25.Core // Oder z.B. cmetro25.Settings
         public static readonly float QuadtreeRoadServiceBuffer = 10f;
         /// <summary>Puffer (in Bildschirm-Pixeln) für die Quadtree-Abfrage bei der Straßeninterpolation.</summary>
         public static readonly float QuadtreeRoadServiceQueryPixelBuffer = 50f;
+        #endregion
+
+        #region File Paths
+        // ... (WaterGeoJsonPath von oben) ...
+        private static readonly string basePath = AppContext.BaseDirectory;
+        public static readonly string WaterGeoJsonPath = Path.Combine(basePath, "GeoJson", "dortmund_lakes_finished.geojson");
+        public static readonly string DistrictGeoJsonPath = Path.Combine(basePath, "GeoJson", "dortmund_boundaries_census_finished.geojson");
+        public static readonly string RoadGeoJsonPath = Path.Combine(basePath, "GeoJson", "dortmund_roads_finished.geojson");
+        public static readonly string RailsGeoJsonPath = Path.Combine(basePath, "GeoJson", "dortmund_rails_finished.geojson");
+        public static readonly string RiversGeoJsonPath = Path.Combine(basePath, "GeoJson", "dortmund_rivers_finished.geojson");
+        public static readonly string StationsGeoJsonPath = Path.Combine(basePath, "GeoJson", "dortmund_stations_finished.geojson");
         #endregion
     }
 }

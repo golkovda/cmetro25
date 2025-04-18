@@ -18,6 +18,22 @@ namespace cmetro25.Views
         private readonly int _viewportHeight;
         private int _previousScrollWheelValue;
 
+        // --- NEU: Private Felder für separate Matrizen ---
+        private Matrix _viewMatrix;
+        private Matrix _projectionMatrix;
+
+        // --- NEU: Öffentliche Properties für BasicEffect ---
+        public Matrix ViewMatrix => _viewMatrix;
+        public Matrix ProjectionMatrix => _projectionMatrix;
+
+        // --- Bestehendes Feld und Property ---
+        private Matrix _transformMatrix;
+        public Matrix TransformMatrix => _transformMatrix; // Für SpriteBatch
+
+        public int ViewportWidth => _viewportWidth;
+
+        public int ViewportHeight => _viewportHeight;
+
         /// <summary>
         /// Gibt das sichtbare Rechteck in Weltkoordinaten zurück.
         /// </summary>
@@ -48,11 +64,6 @@ namespace cmetro25.Views
             get => _zoom;
             set { _zoom = MathHelper.Clamp(value, GameSettings.CameraZoomMin, GameSettings.CameraZoomMax); UpdateTransformMatrix(); }
         }
-
-        /// <summary>
-        /// Die Transformationsmatrix der Kamera.
-        /// </summary>
-        public Matrix TransformMatrix { get; private set; }
 
         /// <summary>
         /// Initialisiert eine neue Instanz der <see cref="MapCamera"/> Klasse.
@@ -116,11 +127,42 @@ namespace cmetro25.Views
         /// <summary>
         /// Aktualisiert die Transformationsmatrix der Kamera basierend auf Position und Zoom.
         /// </summary>
+        // --- Anpassen der UpdateTransformMatrix Methode ---
         private void UpdateTransformMatrix()
         {
-            TransformMatrix = Matrix.CreateTranslation(new Vector3(-_position.X, -_position.Y, 0)) *
-                               Matrix.CreateScale(_zoom) *
-                               Matrix.CreateTranslation(new Vector3(_viewportWidth / 2f, _viewportHeight / 2f, 0));
+            // --- Berechnung für SpriteBatch (bleibt gleich) ---
+            _transformMatrix = Matrix.CreateTranslation(-_position.X, -_position.Y, 0) *
+                               Matrix.CreateScale(_zoom, _zoom, 1f) *
+                               Matrix.CreateTranslation(_viewportWidth * 0.5f, _viewportHeight * 0.5f, 0);
+
+            // --- Berechnung für BasicEffect ---
+            // View Matrix (bleibt mit Vector3.Down):
+            _viewMatrix = Matrix.CreateLookAt(
+                cameraPosition: new Vector3(_position.X, _position.Y, 1f),
+                cameraTarget: new Vector3(_position.X, _position.Y, 0f),
+                cameraUpVector: Vector3.Up); // Korrekt für Y-Down Welt
+
+            // --- KORREKTUR: Projection Matrix für Y-Down anpassen ---
+            // Berechne die sichtbaren Weltgrenzen
+            float worldViewWidth = _viewportWidth / _zoom;
+            float worldViewHeight = _viewportHeight / _zoom;
+            float left = _position.X - worldViewWidth * 0.5f;
+            float right = _position.X + worldViewWidth * 0.5f;
+            // Wichtig: Für Y-Down ist der "obere" Wert im Weltraum der kleinere Y-Wert
+            // und der "untere" Wert im Weltraum der größere Y-Wert.
+            // CreateOrthographicOffCenter erwartet (left, right, bottom, top)
+            // Wir müssen also die Y-Werte entsprechend übergeben:
+            float bottom = _position.Y + worldViewHeight * 0.5f; // Größerer Y-Wert (unten in Y-Down Welt)
+            float top = _position.Y - worldViewHeight * 0.5f;    // Kleinerer Y-Wert (oben in Y-Down Welt)
+
+            _projectionMatrix = Matrix.CreateOrthographicOffCenter(
+                left: left,
+                right: right,
+                bottom: bottom, // Größerer Y-Wert
+                top: top,       // Kleinerer Y-Wert
+                zNearPlane: 0.1f,
+                zFarPlane: 100f);
+            // --- Ende KORREKTUR ---
         }
 
         /// <summary>

@@ -81,6 +81,8 @@ namespace cmetro25.Models
 
         [JsonProperty("source:population")]
         public string sourcepopulation { get; set; }
+        public string natural { get; set; }
+        public string water { get; set; }
         public string type_2 { get; set; }
         public string wikidata_2 { get; set; }
         public string wikipedia_2 { get; set; }

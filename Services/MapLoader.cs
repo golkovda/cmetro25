@@ -9,6 +9,7 @@ using System.IO;
 using System.Linq; // Für Min/Max benötigt
 using MonoGame.Extended;
 using cmetro25.Core;
+using Newtonsoft.Json.Linq;
 
 namespace cmetro25.Services
 {
@@ -34,6 +35,52 @@ namespace cmetro25.Services
         {
             BaseMaxDistance = baseMaxDistance;
             _initialLoadZoom = initialLoadZoom; // Standard-Zoom für initiales Laden
+        }
+
+        private PolylineElement BuildPolyline(string kind, Geometry g)
+        {
+            var lines = new List<List<Vector2>>();
+            if (g.type == "MultiLineString")
+            {
+                foreach (var line in g.CoordsAsMultiLineString())
+                    lines.Add(line.Select(p => TransformCoordinates(p[0], p[1])).ToList());
+            }
+            else if (g.type == "LineString")
+            {
+                lines.Add(g.CoordsAsLineString()
+                          .Select(p => TransformCoordinates(p[0], p[1])).ToList());
+            }
+            return new PolylineElement(kind, lines);
+        }
+
+        public List<PolylineElement> LoadRivers(string fp) => LoadPolylines(fp, "river");
+        public List<PolylineElement> LoadRails(string fp) => LoadPolylines(fp, "rail");
+        private List<PolylineElement> LoadPolylines(string path, string kind)
+        {
+            var list = new List<PolylineElement>();
+            if (!File.Exists(path)) return list;
+            var root = JsonConvert.DeserializeObject<Root>(File.ReadAllText(path));
+            foreach (var f in root.features)
+                if (f.geometry != null) list.Add(BuildPolyline(kind, f.geometry));
+            // Bounding‑Box vorab berechnen
+            foreach (var l in list)
+                l.BoundingBoxes.AddRange(l.Lines.Select(ComputeBoundingBox));
+            return list;
+        }
+
+        public List<PointElement> LoadStations(string fp)
+        {
+            var pts = new List<PointElement>();
+            if (!File.Exists(fp)) return pts;
+            var root = JsonConvert.DeserializeObject<Root>(File.ReadAllText(fp));
+            foreach (var f in root.features)
+                if (f.geometry?.type == "Point")
+                {
+                    var c = ((JToken)f.geometry.Coordinates).ToObject<List<double>>();
+                    pts.Add(new PointElement("station",
+                            TransformCoordinates(c[0], c[1])));
+                }
+            return pts;
         }
 
         /// <summary>
@@ -116,18 +163,122 @@ namespace cmetro25.Services
             return districts;
         }
 
-        /// <summary>
-        /// Berechnet die Bounding Box eines Distrikts basierend auf seinen Polygonen.
-        /// </summary>
-        /// <param name="polygons">Die Polygone des Distrikts.</param>
-        /// <returns>Die berechnete Bounding Box.</returns>
-        private RectangleF CalculateDistrictBoundingBox(List<List<Vector2>> polygons)
+        public List<WaterBody> LoadWaterBodies(string filePath)
         {
-            if (polygons == null || polygons.Count == 0 || polygons[0].Count == 0)
+            List<WaterBody> waterBodies = new List<WaterBody>();
+            if (!File.Exists(filePath))
+            {
+                Debug.WriteLine($"[Warning] Water body file not found: {filePath}");
+                return waterBodies;
+            }
+            string jsonContent = File.ReadAllText(filePath);
+            // Annahme: Die Root-Struktur ist dieselbe wie bei Distrikten/Straßen
+            Root root = JsonConvert.DeserializeObject<Root>(jsonContent);
+            if (root?.features != null)
+            {
+                foreach (var feature in root.features)
+                {
+                    // Prüfe, ob es sich um eine Wasserfläche handelt (basierend auf 'natural' oder 'water' Tag)
+                    if (feature.properties != null && (feature.properties.natural == "water" || !string.IsNullOrEmpty(feature.properties.water)))
+                    {
+                        WaterBody wb = new WaterBody();
+                        wb.Id = feature.properties.id;
+                        wb.Name = feature.properties.name; // Kann null sein
+
+                        // Bestimme den Typ (vereinfacht)
+                        if (!string.IsNullOrEmpty(feature.properties.water))
+                        {
+                            wb.Type = feature.properties.water; // z.B. harbour, river, canal, lake
+                        }
+                        else if (feature.properties.natural == "water")
+                        {
+                            wb.Type = "water"; // Generischer Typ, wenn 'water' Tag fehlt
+                        }
+                        else
+                        {
+                            wb.Type = "unknown"; // Sollte eigentlich nicht passieren wegen der if-Bedingung oben
+                        }
+
+
+                        if (feature.geometry != null && feature.geometry.type == "MultiPolygon")
+                        {
+                            var multiPolygon = feature.geometry.CoordsAsMultiPolygonString();
+                            if (multiPolygon != null)
+                            {
+                                foreach (var polygon in multiPolygon)
+                                {
+                                    foreach (var ring in polygon) // Behandle äußere und innere Ringe gleich
+                                    {
+                                        List<Vector2> convertedPolygon = new List<Vector2>();
+                                        foreach (var point in ring)
+                                        {
+                                            Vector2 transformedPoint = TransformCoordinates(point[0], point[1]);
+                                            // Vermeide Duplikate direkt nacheinander
+                                            if (convertedPolygon.Count == 0 || Vector2.DistanceSquared(convertedPolygon[^1], transformedPoint) > 0.01f)
+                                                convertedPolygon.Add(transformedPoint);
+                                        }
+                                        // Schließe den Polygonring, falls nicht schon geschehen (optional, aber gut für Renderer)
+                                        if (convertedPolygon.Count > 1 && Vector2.DistanceSquared(convertedPolygon[0], convertedPolygon[^1]) > 0.01f)
+                                        {
+                                            convertedPolygon.Add(convertedPolygon[0]);
+                                        }
+
+                                        if (convertedPolygon.Count > 2) // Braucht mind. 3 Punkte für ein Polygon
+                                            wb.Polygons.Add(convertedPolygon);
+                                    }
+                                }
+                            }
+                        }
+                        else if (feature.geometry != null && feature.geometry.type == "Polygon") // Falls auch einfache Polygone vorkommen
+                        {
+                            var simplePolygon = feature.geometry.CoordsAsMultiLineString();
+                            if (simplePolygon != null)
+                            {
+                                foreach (var ring in simplePolygon)
+                                {
+                                    List<Vector2> convertedPolygon = new List<Vector2>();
+                                    foreach (var point in ring)
+                                    {
+                                        Vector2 transformedPoint = TransformCoordinates(point[0], point[1]);
+                                        if (convertedPolygon.Count == 0 || Vector2.DistanceSquared(convertedPolygon[^1], transformedPoint) > 0.01f)
+                                            convertedPolygon.Add(transformedPoint);
+                                    }
+                                    if (convertedPolygon.Count > 1 && Vector2.DistanceSquared(convertedPolygon[0], convertedPolygon[^1]) > 0.01f)
+                                    {
+                                        convertedPolygon.Add(convertedPolygon[0]);
+                                    }
+                                    if (convertedPolygon.Count > 2)
+                                        wb.Polygons.Add(convertedPolygon);
+                                }
+                            }
+                        }
+                        else
+                        {
+                            Debug.WriteLine($"[Warning] Unsupported geometry type for water body: {feature.geometry?.type}");
+                        }
+
+                        // Berechne Bounding Box nur, wenn Polygone vorhanden sind
+                        if (wb.Polygons.Any())
+                        {
+                            wb.BoundingBox = CalculateObjectBoundingBox(wb.Polygons); // Verwende Hilfsmethode
+                            waterBodies.Add(wb);
+                        }
+                    }
+                }
+            }
+            return waterBodies;
+        }
+
+        // Hilfsmethode zur Berechnung der Bounding Box für beliebige Polygon-Listen
+        // (Kann auch für Distrikte verwendet werden, um Code zu vereinheitlichen)
+        private RectangleF CalculateObjectBoundingBox(List<List<Vector2>> polygons)
+        {
+            if (polygons == null || !polygons.Any() || !polygons.First().Any())
                 return RectangleF.Empty;
 
             float minX = float.MaxValue, minY = float.MaxValue;
             float maxX = float.MinValue, maxY = float.MinValue;
+            bool validPointFound = false;
 
             foreach (var polygon in polygons)
             {
@@ -137,12 +288,19 @@ namespace cmetro25.Services
                     if (point.Y < minY) minY = point.Y;
                     if (point.X > maxX) maxX = point.X;
                     if (point.Y > maxY) maxY = point.Y;
+                    validPointFound = true;
                 }
             }
 
-            if (minX > maxX) return RectangleF.Empty; // Keine gültigen Punkte gefunden
+            if (!validPointFound) return RectangleF.Empty;
 
             return new RectangleF(minX, minY, maxX - minX, maxY - minY);
+        }
+
+        // Optional: Ersetze den Code in CalculateDistrictBoundingBox durch einen Aufruf an CalculateObjectBoundingBox
+        private RectangleF CalculateDistrictBoundingBox(List<List<Vector2>> polygons)
+        {
+            return CalculateObjectBoundingBox(polygons);
         }
 
         /// <summary>
