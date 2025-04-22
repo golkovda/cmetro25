@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 using cmetro25.Core;
 using cmetro25.Models;
@@ -11,6 +12,7 @@ using cmetro25.Views;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using MonoGame.Extended;
+
 // NEU: Für ConcurrentQueue/Dictionary
 
 namespace cmetro25.Utils;
@@ -20,6 +22,13 @@ namespace cmetro25.Utils;
 /// </summary>
 public class TileManager
 {
+
+    public int GenerationQueueSize => _tileGenerationQueue.Count;
+    public int BuildQueueSize => _buildTasks.Count;
+    public int CompletedQueueSize => _completed.Count;
+    public int TileCacheCount => _tileCache.Count;
+    public int LastDrawnTileCount { get; private set; }
+
     // --- Bestehende Member ---
     private readonly GraphicsDevice _graphicsDevice;
     private readonly List<District> _districts;
@@ -37,12 +46,21 @@ public class TileManager
     private readonly PolylineRenderer _polylineRenderer;
     private readonly PointRenderer _pointRenderer;
 
+    private readonly SpriteBatch _spriteBatch;
+    private readonly Texture2D _drawPixel;       // rein weiß
+    private readonly Texture2D _placeholderTile;
+    private int _activeQueueZoomLevel = -1;
+
+
     // --- NEU: Für Queued Generation ---
     private readonly ConcurrentQueue<(int zoom, int x, int y)> _tileGenerationQueue = new();
 
     // ConcurrentDictionary wird als thread-sicheres Set verwendet, um doppelte Einträge in der Queue zu vermeiden. Der bool-Wert ist irrelevant.
     private readonly ConcurrentDictionary<(int zoom, int x, int y), bool> _queuedOrProcessingKeys = new();
     private Task _tileRequestTask = Task.CompletedTask; // Task zur Verwaltung der Anfragen
+
+    private readonly ConcurrentDictionary<(int zoom, int x, int y), Task<TileBuildResult>> _buildTasks = new();
+    private readonly ConcurrentQueue<TileBuildResult> _completed = new();
 
     public TileManager(GraphicsDevice graphicsDevice,
         List<District> districts,
@@ -70,12 +88,30 @@ public class TileManager
         _rails = rails;
         _stations = stations;
 
+        _spriteBatch = new SpriteBatch(graphicsDevice);
+
+        _drawPixel = new Texture2D(graphicsDevice, 1, 1);
+        _drawPixel.SetData([Color.White]);
+
+        _placeholderTile = new Texture2D(graphicsDevice, 1, 1);
+        _placeholderTile.SetData([GameSettings.MapBackgroundColor]);
+
         _tileCache = new Dictionary<(int zoom, int tileX, int tileY), RenderTarget2D>();
         _mapBounds = ComputeGlobalMapBounds();
     }
 
+    /// <summary>
+    ///     Liefert die Anzahl Rand‑Tiles, die zusätzlich angefordert werden sollen.
+    ///     Ab Zoom 0–2 ein Tile Puffer, ab Zoom 3 kein Puffer.
+    /// </summary>
+    private static int GetTileBufferForZoom(int zoomLevel)
+    {
+        return zoomLevel >= 3 ? 0 : 1;
+    }
+
     public int LastPolylineSegmentCount
         => _polylineRenderer.VisibleSegmentsLastDraw;
+
 
     /// <summary>
     ///     Ermittelt die globalen Karten­grenzen, indem alle bislang
@@ -179,148 +215,163 @@ public class TileManager
         return tileRT;
     }
 
-    private RenderTarget2D GenerateTile(int zoom, int tileX, int tileY)
-    {
-        var key = (zoom, tileX, tileY);
-        if (_tileCache.ContainsKey(key))
-        {
-            _queuedOrProcessingKeys.TryRemove(key, out _);
-            return _tileCache[key];
-        }
-
-        RenderTarget2D rt = null;
-        try
-        {
-            rt = new RenderTarget2D(_graphicsDevice, _tileSize, _tileSize);
-
-            _graphicsDevice.SetRenderTarget(rt);
-            _graphicsDevice.Clear(GameSettings.TileBackgroundColor);
-
-            /*------------- Weltkoordinaten der Kachel -------------*/
-            var n = 1 << zoom;
-            var w = _mapBounds.Width / n;
-            var h = _mapBounds.Height / n;
-            var wx = _mapBounds.X + tileX * w;
-            var wy = _mapBounds.Y + tileY * h;
-            var world = new RectangleF(wx, wy, w, h);
-
-            /*------------- lokale Kamera -------------*/
-            var cam = new MapCamera(_tileSize, _tileSize)
-            {
-                Zoom = _tileSize / w
-            };
-            cam.CenterOn(new Vector2(wx + w * .5f, wy + h * .5f));
-
-            /*------------- Abfragen -------------*/
-            var districts = QueryDistrictsInBounds(world);
-            var roads = _roadService.GetQuadtree()?.Query(world).Distinct().ToList()
-                        ?? new List<Road>();
-            var water = QueryWaterBodiesInBounds(world);
-            var riversIn = _rivers.Where(r => r.BoundingBoxes.Any(b => b.Intersects(world))).ToList();
-            var railsIn = _rails.Where(r => r.BoundingBoxes.Any(b => b.Intersects(world))).ToList();
-            var stationsIn = _stations.Where(s => world.Contains(s.Position)).ToList();
-
-            /*------------- Zeichnen -------------*/
-            _polygonRenderer.DrawWaterBodies(water, cam);
-
-            // District‑Outlines & Labels
-            _polygonRenderer.DrawDistricts(new SpriteBatch(_graphicsDevice), districts, cam);
-
-            // Linien (Straßen, Flüsse, Gleise)
-            _polylineRenderer.Draw(new SpriteBatch(_graphicsDevice),
-                riversIn.Concat(railsIn), // generic
-                roads, // roads
-                world, cam);
-
-            // Punkte
-            _pointRenderer.Draw(new SpriteBatch(_graphicsDevice), stationsIn, cam);
-
-            _graphicsDevice.SetRenderTarget(null);
-            _tileCache[key] = rt;
-        }
-        catch
-        {
-            rt?.Dispose();
-            rt = null;
-        }
-        finally
-        {
-            _queuedOrProcessingKeys.TryRemove(key, out _);
-        }
-
-        return rt;
-    }
-
-
     /// <summary>
     ///     Startet einen Task, um benötigte Tiles zu identifizieren und in die Queue zu legen.
     /// </summary>
     /// <param name="area">Der Bereich, für den Tiles generiert werden sollen.</param>
     /// <param name="zoomLevel">Der Zoomlevel der Tiles.</param>
+    /// <summary>
+    ///     Markiert alle Tiles, die für den aktuellen Viewport benötigt werden, und
+    ///     startet pro Tile einen Build‑Task (CPU‑seitige Vorarbeit) im ThreadPool.
+    /// </summary>
     public void RequestTileGeneration(RectangleF area, int zoomLevel)
     {
-        // Nur einen Request-Task gleichzeitig laufen lassen
-        if (!_tileRequestTask.IsCompleted) return;
+        /* ---------- Zoom‑Wechsel → Queue & Marker leeren ---------- */
+        if (_activeQueueZoomLevel != zoomLevel)
+        {
+            while (_tileGenerationQueue.TryDequeue(out _)) { }
+            _queuedOrProcessingKeys.Clear();
+            _activeQueueZoomLevel = zoomLevel;
+        }
+
+        /* ---------- nur einen Sammel‑Task gleichzeitig ---------- */
+        if (_tileRequestTask is { IsCompleted: false })
+            return;
 
         _tileRequestTask = Task.Run(() =>
         {
             if (_mapBounds.Width <= 0 || _mapBounds.Height <= 0) return;
 
-            var numTiles = 1 << zoomLevel;
-            var tileWorldWidth = _mapBounds.Width / numTiles;
-            var tileWorldHeight = _mapBounds.Height / numTiles;
+            int nTiles = 1 << zoomLevel;
+            float tileWorldW = _mapBounds.Width / nTiles;
+            float tileWorldH = _mapBounds.Height / nTiles;
 
-            // Berechne benötigte Tile-Indizes mit Puffer
-            var buf = GameSettings.TileGenerationBuffer;
-            var minTileX = Math.Max(0, (int)Math.Floor((area.Left - _mapBounds.Left) / tileWorldWidth) - buf);
-            var maxTileX = Math.Min(numTiles - 1,
-                (int)Math.Ceiling((area.Right - _mapBounds.Left) / tileWorldWidth) + buf);
-            var minTileY = Math.Max(0, (int)Math.Floor((area.Top - _mapBounds.Top) / tileWorldHeight) - buf);
-            var maxTileY = Math.Min(numTiles - 1,
-                (int)Math.Ceiling((area.Bottom - _mapBounds.Top) / tileWorldHeight) + buf);
+            int buf = GetTileBufferForZoom(zoomLevel);   // 0 ab Zoom 3, sonst 1
+            int minTx = Math.Max(0, (int)Math.Floor((area.Left - _mapBounds.Left) / tileWorldW) - buf);
+            int maxTx = Math.Min(nTiles - 1, (int)Math.Floor((area.Right - _mapBounds.Left) / tileWorldW) + buf);
+            int minTy = Math.Max(0, (int)Math.Floor((area.Top - _mapBounds.Top) / tileWorldH) - buf);
+            int maxTy = Math.Min(nTiles - 1, (int)Math.Floor((area.Bottom - _mapBounds.Top) / tileWorldH) + buf);
 
-            var requestedCount = 0;
-            for (var ty = minTileY; ty <= maxTileY; ty++)
-            for (var tx = minTileX; tx <= maxTileX; tx++)
-            {
-                var key = (zoomLevel, tx, ty);
+            int requested = 0;
 
-                // Prüfe Cache UND Queue, bevor Schlüssel hinzugefügt wird
-                if (!_tileCache.ContainsKey(key) && !_queuedOrProcessingKeys.ContainsKey(key))
-                    // Füge zum Set hinzu, um Duplikate zu verhindern, bevor es in die Queue geht
-                    if (_queuedOrProcessingKeys.TryAdd(key, true))
-                    {
-                        _tileGenerationQueue.Enqueue(key);
-                        requestedCount++;
-                    }
-            }
+            for (int ty = minTy; ty <= maxTy; ty++)
+                for (int tx = minTx; tx <= maxTx; tx++)
+                {
+                    var key = (zoomLevel, tx, ty);
 
-            if (requestedCount > 0)
-                Debug.WriteLine(
-                    $"Requested {requestedCount} new tiles for zoom {zoomLevel}. Queue size: {_tileGenerationQueue.Count}");
+                    if (_tileCache.ContainsKey(key) || _queuedOrProcessingKeys.ContainsKey(key))
+                        continue;
+
+                    if (!_queuedOrProcessingKeys.TryAdd(key, true))
+                        continue;
+
+                    /* ---- Welt‑Rect der Kachel ---- */
+                    float wx = _mapBounds.X + tx * tileWorldW;
+                    float wy = _mapBounds.Y + ty * tileWorldH;
+                    var worldRect = new RectangleF(wx, wy, tileWorldW, tileWorldH);
+
+                    /* ---- Build‑Task anlegen ---- */
+                    var buildTask = Task.Run(() =>
+                {
+                    var dists = QueryDistrictsInBounds(worldRect);
+                    var roads = _roadService.GetQuadtree()?.Query(worldRect).Distinct().ToList() ?? [];
+                    var water = QueryWaterBodiesInBounds(worldRect);
+                    var rivers = _rivers.Where(r => r.BoundingBoxes.Any(b => b.Intersects(worldRect))).ToList();
+                    var rails = _rails.Where(r => r.BoundingBoxes.Any(b => b.Intersects(worldRect))).ToList();
+                    var points = _stations.Where(s => worldRect.Contains(s.Position)).ToList();
+
+                    return TileBuilder.BuildTile(
+                        key, worldRect, _tileSize,
+                        water, dists,
+                        rivers.Concat(rails).ToList(),
+                        roads, points);
+                });
+
+                    /* ---- Continuation separat anhängen ---- */
+                    buildTask.ContinueWith(t =>
+                {
+                    _buildTasks.TryRemove(key, out _);
+
+                    if (t.Status == TaskStatus.RanToCompletion)
+                        _completed.Enqueue(t.Result);                 // fertig → Main‑Thread
+                    else
+                        _queuedOrProcessingKeys.TryRemove(key, out _); // Fehlgeschlagen
+                });
+
+                    /* ---- ursprüngliches Task im Dictionary merken ---- */
+                    _buildTasks[key] = buildTask;
+
+                    requested++;
+                }
+
+            if (requested > 0)
+                Debug.WriteLine($"Requested {requested} tiles for zoom {zoomLevel}. Build queue: {_buildTasks.Count}");
         });
     }
 
-    /// <summary>
-    ///     Verarbeitet die Tile-Generierungs-Queue im Hauptthread. Sollte in CMetro.Update aufgerufen werden.
-    /// </summary>
-    public void ProcessTileGenerationQueue()
+    public void ProcessBuildResults()
     {
-        var processedCount = 0;
-        while (processedCount < GameSettings.MaxTilesToGeneratePerFrame &&
-               _tileGenerationQueue.TryDequeue(out var keyToGenerate))
-            // Erneute Prüfung im Hauptthread, ob es zwischenzeitlich generiert wurde
-            if (!_tileCache.ContainsKey(keyToGenerate))
-            {
-                GenerateTile(keyToGenerate.zoom, keyToGenerate.x, keyToGenerate.y);
-                processedCount++;
-            }
-            else
-            {
-                // War schon im Cache, nur aus dem queued Set entfernen
-                _queuedOrProcessingKeys.TryRemove(keyToGenerate, out _);
-            }
+        var builtThisFrame = 0;
+        while (builtThisFrame < GameSettings.MaxTilesToGeneratePerFrame &&
+               _completed.TryDequeue(out var res))
+        {
+            // schon existierendes Tile? → skip
+            if (_tileCache.ContainsKey(res.Key))
+                continue;
+
+            var rt = new RenderTarget2D(_graphicsDevice, _tileSize, _tileSize);
+            _graphicsDevice.SetRenderTarget(rt);
+            _graphicsDevice.Clear(GameSettings.TileBackgroundColor);
+
+            var mat = res.CalcTransformMatrix(_tileSize);
+
+            /* ---- Draw pre‑baked primitives ---- */
+            // a) Polygon‑Fill
+            if (res.FillVerts.Count > 0)
+                _graphicsDevice.DrawUserIndexedPrimitives(
+                    PrimitiveType.TriangleList,
+                    res.FillVerts.ToArray(), 0, res.FillVerts.Count,
+                    res.FillIndices.ToArray(), 0, res.FillIndices.Count / 3);
+
+            _graphicsDevice.BlendState = BlendState.Opaque;
+            _graphicsDevice.DepthStencilState = DepthStencilState.None;
+            _graphicsDevice.RasterizerState = RasterizerState.CullNone;
+
+            // b) Lines & Points via SpriteBatch
+            _spriteBatch.Begin(transformMatrix: mat,
+                samplerState: SamplerState.AnisotropicClamp);
+
+            foreach (var ln in res.Lines)
+                DrawFastLine(_spriteBatch, ln.p1, ln.p2, ln.col, ln.thick);
+
+            foreach (var pt in res.Points)
+                _spriteBatch.DrawCircle(
+                    new CircleF(pt.pos, pt.radius),
+                    12, pt.col, pt.radius);
+
+            _spriteBatch.End();
+
+            _graphicsDevice.SetRenderTarget(null);
+            _tileCache[res.Key] = rt;
+            _queuedOrProcessingKeys.TryRemove(res.Key, out _);
+
+            builtThisFrame++;
+        }
     }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void DrawFastLine(SpriteBatch sb, Vector2 p1, Vector2 p2,
+                           Color tint, float thickness)
+    {
+        var d = p2 - p1;
+        if (d.LengthSquared() < 1e-4f) return;
+        float angle = MathF.Atan2(d.Y, d.X);
+
+        sb.Draw(_drawPixel, p1, null, tint, angle, Vector2.Zero,
+                new Vector2(d.Length(), thickness),
+                SpriteEffects.None, 0f);
+    }
+
 
     /// <summary>
     ///     Zeichnet die vorhandenen Tiles basierend auf der aktuellen Kameraposition und dem Zoomlevel.
@@ -328,40 +379,44 @@ public class TileManager
     /// <param name="spriteBatch">Das SpriteBatch zum Zeichnen der Tiles.</param>
     /// <param name="camera">Die aktuelle Kamera.</param>
     /// <param name="zoomLevel">Der Zoomlevel der Tiles.</param>
-    public void DrawTiles(SpriteBatch spriteBatch, MapCamera camera, int zoomLevel)
+    public void DrawTiles(SpriteBatch spriteBatch, MapCamera cam, int zoomLevel)
     {
         if (_mapBounds.Width <= 0 || _mapBounds.Height <= 0) return;
 
-        var visibleWorld = camera.BoundingRectangle;
-        var numTiles = 1 << zoomLevel;
-        var tileWorldWidth = _mapBounds.Width / numTiles;
-        var tileWorldHeight = _mapBounds.Height / numTiles;
+        var view = cam.BoundingRectangle;
 
-        var minTileX = Math.Max(0, (int)Math.Floor((visibleWorld.Left - _mapBounds.Left) / tileWorldWidth));
-        var maxTileX = Math.Min(numTiles - 1,
-            (int)Math.Ceiling((visibleWorld.Right - _mapBounds.Left) / tileWorldWidth));
-        var minTileY = Math.Max(0, (int)Math.Floor((visibleWorld.Top - _mapBounds.Top) / tileWorldHeight));
-        var maxTileY = Math.Min(numTiles - 1,
-            (int)Math.Ceiling((visibleWorld.Bottom - _mapBounds.Top) / tileWorldHeight));
+        var nTiles = 1 << zoomLevel;
+        var tileWorldW = _mapBounds.Width / nTiles;
+        var tileWorldH = _mapBounds.Height / nTiles;
 
-        for (var ty = minTileY; ty <= maxTileY; ty++)
-        for (var tx = minTileX; tx <= maxTileX; tx++)
+        var minTx = Math.Max(0, (int)Math.Floor((view.Left - _mapBounds.Left) / tileWorldW));
+        var maxTx = Math.Min(nTiles - 1, (int)Math.Floor((view.Right - _mapBounds.Left) / tileWorldW));
+        var minTy = Math.Max(0, (int)Math.Floor((view.Top - _mapBounds.Top) / tileWorldH));
+        var maxTy = Math.Min(nTiles - 1, (int)Math.Floor((view.Bottom - _mapBounds.Top) / tileWorldH));
+
+        int drawn = 0;
+        for (var ty = minTy; ty <= maxTy; ty++)
+        for (var tx = minTx; tx <= maxTx; tx++)
         {
-            // Hole vorhandenes Tile oder null
-            var tileTexture = GetExistingTile(zoomLevel, tx, ty);
+            var key = (zoomLevel, tx, ty);
+            var hasTile = _tileCache.TryGetValue(key, out var rt) && !rt.IsDisposed;
+                
+            if (hasTile)
+                drawn++;
 
-            if (tileTexture != null && !tileTexture.IsDisposed)
-            {
-                // Zeichne das vorhandene Tile
-                var tileWorldX = _mapBounds.X + tx * tileWorldWidth;
-                var tileWorldY = _mapBounds.Y + ty * tileWorldHeight;
-                spriteBatch.Draw(tileTexture,
-                    new Vector2(tileWorldX, tileWorldY),
-                    null, Color.White, 0f, Vector2.Zero,
-                    new Vector2(tileWorldWidth / _tileSize, tileWorldHeight / _tileSize),
-                    SpriteEffects.None, 0f);
-            }
+            var worldX = _mapBounds.X + tx * tileWorldW;
+            var worldY = _mapBounds.Y + ty * tileWorldH;
+
+            var tex = hasTile ? rt : _placeholderTile;
+            var color = Color.White;
+
+            spriteBatch.Draw(tex,
+                new Vector2(worldX, worldY),
+                null, color, 0f, Vector2.Zero,
+                new Vector2(tileWorldW / tex.Width, tileWorldH / tex.Height),
+                SpriteEffects.None, 0f);
         }
+        LastDrawnTileCount = drawn;
     }
 
     /// <summary>

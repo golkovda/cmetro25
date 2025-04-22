@@ -310,7 +310,7 @@ namespace cmetro25.Core
             CheckCameraMovementAndRequestTiles();
 
             // NEU: Verarbeite die Tile-Generierungs-Queue
-            _tileManager.ProcessTileGenerationQueue();
+            _tileManager.ProcessBuildResults();
 
             HandleZoomDebounce(gameTime);
             UpdatePerformanceCounters(gameTime);
@@ -472,7 +472,26 @@ namespace cmetro25.Core
                 int visibleRoadSegments = _tileManager?.LastPolylineSegmentCount ?? 0;
                 int queueSize = _tileManager?.GetGenerationQueueSize() ?? 0; // Queue-Größe anzeigen
                 // Füge queueSize zur PerformanceUI.Draw hinzu
-                _performanceUI.Draw(_spriteBatch, _fps, _updatesPerSecond, _camera, _districts, _roads, visibleRoadSegments, tileZoomLevel, queueSize);
+                int visibleTiles = _tileManager?.LastDrawnTileCount ?? 0;
+                int tileCacheCount = _tileManager?.TileCacheCount ?? 0;
+                int genQueueSize = _tileManager?.GenerationQueueSize ?? 0;
+                int buildQueueSize = _tileManager?.BuildQueueSize ?? 0;
+                int completedQueueSize = _tileManager?.CompletedQueueSize ?? 0;
+                long memMB = GC.GetTotalMemory(false) / (1024 * 1024);
+                _performanceUI.Draw(_spriteBatch,
+                                    _fps,
+                                    _updatesPerSecond,
+                                    _camera,
+                                    _districts, _roads,
+                                    visibleRoadSegments,
+                                    tileZoomLevel,
+                                    /* neu */
+                                    visibleTiles,
+                                    tileCacheCount,
+                                    genQueueSize,
+                                    buildQueueSize,
+                                    completedQueueSize,
+                                    memMB);
             }
 
             base.Draw(gameTime);

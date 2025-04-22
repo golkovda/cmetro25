@@ -27,15 +27,12 @@ namespace cmetro25.Views
         /*------------------------------------------------------------*/
 
         public void Draw(SpriteBatch sb,
-                         IEnumerable<PolylineElement> generic,
-                         IEnumerable<Road> roads,
-                         RectangleF visible,
-                         MapCamera cam)
+                 IEnumerable<PolylineElement> generic,
+                 IEnumerable<Road> roads,
+                 RectangleF visible,
+                 MapCamera cam)
         {
             _visibleSegments = 0;
-
-            sb.Begin(transformMatrix: cam.TransformMatrix,
-                     samplerState: SamplerState.AnisotropicClamp);
 
             if (generic != null)
                 foreach (var el in generic.Where(e => e.BoundingBoxes.Any(b => b.Intersects(visible))))
@@ -44,9 +41,8 @@ namespace cmetro25.Views
             if (roads != null)
                 foreach (var r in roads)
                     DrawRoad(sb, r, cam.Zoom);
-
-            sb.End();
         }
+
 
         /*----------------  Generic  ----------------*/
 

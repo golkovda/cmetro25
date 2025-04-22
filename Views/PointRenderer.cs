@@ -15,23 +15,17 @@ namespace cmetro25.Views
 
         public PointRenderer(Texture2D pixel) => _px = pixel;
 
-        public void Draw(SpriteBatch sb, IEnumerable<PointElement> pts, MapCamera cam)
+        public void Draw(SpriteBatch sb, IEnumerable<PointElement> pts, float zoom)
         {
             if (pts == null) return;
-
-            float baseRadiusPx = 5f;
-            sb.Begin(transformMatrix: cam.TransformMatrix);
+            const float baseR = 5f;
 
             foreach (var p in pts)
             {
-                float r = baseRadiusPx / cam.Zoom;
-                var c = p.Kind == "station"
-                            ? GameSettings.StationColor
-                            : Color.White;
-
+                float r = baseR / zoom;
+                var c = p.Kind == "station" ? GameSettings.StationColor : Color.White;
                 sb.DrawCircle(new CircleF(p.Position, r), 12, c, r);
             }
-            sb.End();
         }
     }
 }

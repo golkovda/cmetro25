@@ -65,34 +65,31 @@ namespace cmetro25.Views
         {
             if (dists == null || dists.Count == 0) return;
 
-            sb.Begin(transformMatrix: cam.TransformMatrix,
-                     samplerState: SamplerState.AnisotropicClamp);
-
-            var outlineColor  = GameSettings.DistrictBorderColor;
-            var labelColor    = GameSettings.DistrictLabelColor;
-            float thickness   = Math.Max(0.4f, 1f / cam.Zoom);
-            float txtScale    = TextUtils.CalculateTextScale(cam.Zoom,
-                                                             GameSettings.BaseZoomForTextScaling,
-                                                             GameSettings.MinTextScale,
-                                                             GameSettings.MaxTextScale);
+            var outlineCol = GameSettings.DistrictBorderColor;
+            var labelCol = GameSettings.DistrictLabelColor;
+            float thick = Math.Max(0.4f, 1f / cam.Zoom);
+            float txtScale = TextUtils.CalculateTextScale(cam.Zoom,
+                                                          GameSettings.BaseZoomForTextScaling,
+                                                          GameSettings.MinTextScale,
+                                                          GameSettings.MaxTextScale);
 
             foreach (var d in dists.Where(d => cam.BoundingRectangle.Intersects(d.BoundingBox)))
             {
-                // -- Outline
+                // Outline
                 foreach (var ring in d.Polygons)
-                    DrawPolyline(sb, ring, thickness, outlineColor);
+                    DrawPolyline(sb, ring, thick, outlineCol);
 
-                // -- Label
+                // Label
                 if (drawLabels && txtScale > GameSettings.MinTextScale)
                 {
                     var size = _font.MeasureString(d.Name);
-                    sb.DrawString(_font, d.Name, d.TextPosition, labelColor,
+                    sb.DrawString(_font, d.Name, d.TextPosition, labelCol,
                                   0f, size * 0.5f, txtScale,
                                   SpriteEffects.None, 0f);
                 }
             }
-            sb.End();
         }
+
 
         /*--------------------------------------------------------------------
          * interne Helfer

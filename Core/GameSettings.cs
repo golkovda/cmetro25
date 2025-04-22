@@ -32,8 +32,6 @@ namespace cmetro25.Core // Oder z.B. cmetro25.Settings
         #region Tile System Settings
         /// <summary>Größe der Kacheln in Pixeln.</summary>
         public static readonly int TileSize = 4096; // Kleinere Größe empfohlen zum Testen
-        /// <summary>Anzahl der Kacheln als Puffer um den sichtbaren Bereich bei der Anforderung.</summary>
-        public static readonly int TileGenerationBuffer = 1;
         /// <summary>Maximale Anzahl von Kacheln, die pro Update-Frame generiert werden.</summary>
         public static readonly int MaxTilesToGeneratePerFrame = 1;
         /// <summary>Maximaler berechneter Zoomlevel für das Tiling-System.</summary>
