@@ -37,10 +37,7 @@ namespace cmetro25.Core
         // --- Services und Renderer (werden nach dem Laden initialisiert) ---
         private MapLoader _mapLoader;
         private RoadService _roadService;
-        private DistrictRenderer _districtRenderer;
-        private RoadRenderer _roadRenderer;
         private TileManager _tileManager;
-        private WaterBodyRenderer _waterBodyRenderer;
 
         // --- UI & Grundlegende Komponenten ---
         private PerformanceUI _performanceUI;
@@ -224,32 +221,35 @@ namespace cmetro25.Core
         {
             try
             {
-                Debug.WriteLine("Initializing map components (Renderers, TileManager)...");
-                var stopwatch = Stopwatch.StartNew();
+                Debug.WriteLine("Initializing unified renderers …");
+                var sw = Stopwatch.StartNew();
 
-                _districtRenderer = new DistrictRenderer(_pixelTexture, _font, GameSettings.DistrictBorderColor, GameSettings.DistrictLabelColor, GameSettings.MinTextScale, GameSettings.MaxTextScale, GameSettings.BaseZoomForTextScaling);
-                _roadRenderer = new RoadRenderer(_pixelTexture, GameSettings.RoadBaseOverlapFactor, GameSettings.RoadBaseMaxInterpolationDistance, GameSettings.UseRoadSmoothing, GameSettings.RoadCurveSegments);
-                _waterBodyRenderer = new WaterBodyRenderer(GraphicsDevice, GameSettings.WaterBodyColor);
+                // *** neue Renderer ***
+                var polygonRenderer = new PolygonRenderer(GraphicsDevice, _pixelTexture, _font);
+                var polylineRenderer = new PolylineRenderer(_pixelTexture);
+                var pointRenderer = new PointRenderer(_pixelTexture);
 
-                _tileManager = new TileManager(GraphicsDevice, _districts, _waterBodies, _roadService, _mapLoader, _districtRenderer, _roadRenderer, _waterBodyRenderer, GameSettings.TileSize, _pixelTexture, _rivers, _rails, _stations);
-                
-                _lastCameraZoomForTileRequest = _camera.Zoom; // Bleibt gleich, aber die Konstante für den Vergleich kommt aus GameSettings
+                _tileManager = new TileManager(GraphicsDevice,
+                                               _districts, _waterBodies,
+                                               _roadService, _mapLoader,
+                                               polygonRenderer, polylineRenderer, pointRenderer,
+                                               GameSettings.TileSize,
+                                               _rivers, _rails, _stations);
+
                 _mapLoader.SetCamera(_camera);
                 _roadService.SetCamera(_camera);
 
-                stopwatch.Stop();
-                Debug.WriteLine($"Map components initialized in {stopwatch.ElapsedMilliseconds} ms");
+                sw.Stop();
+                Debug.WriteLine($"Renderers ready in {sw.ElapsedMilliseconds} ms");
 
                 _mapDataReady = true;
-
-                // NEU: Initiale Tile-Anforderung nach dem Laden
                 RequestTilesForCurrentView();
                 _lastCameraPositionForTileRequest = _camera.Position;
                 _lastCameraZoomForTileRequest = _camera.Zoom;
             }
             catch (Exception ex)
             {
-                _loadingError = $"Error initializing map components: {ex.Message}\n{ex.StackTrace}";
+                _loadingError = $"Renderer init failed: {ex.Message}";
                 Debug.WriteLine(_loadingError);
                 _mapDataReady = false;
             }
@@ -469,7 +469,7 @@ namespace cmetro25.Core
             // --- UI / Performance ---
             if (_showPerformanceMenu)
             {
-                int visibleRoadSegments = _roadRenderer?.GetVisibleLineCount() ?? 0;
+                int visibleRoadSegments = _tileManager?.LastPolylineSegmentCount ?? 0;
                 int queueSize = _tileManager?.GetGenerationQueueSize() ?? 0; // Queue-Größe anzeigen
                 // Füge queueSize zur PerformanceUI.Draw hinzu
                 _performanceUI.Draw(_spriteBatch, _fps, _updatesPerSecond, _camera, _districts, _roads, visibleRoadSegments, tileZoomLevel, queueSize);

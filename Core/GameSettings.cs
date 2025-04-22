@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using Microsoft.Xna.Framework;
 
@@ -63,7 +64,7 @@ namespace cmetro25.Core // Oder z.B. cmetro25.Settings
         /// <summary>Maximale Breite einer Straße in Pixeln (unabhängig vom Zoom).</summary>
         public static readonly float RoadMaxPixelWidth = 15f;
         /// <summary>Pixel-Überlappung für nicht geglättete Liniensegmente im RoadRenderer.</summary>
-        public static readonly float RoadDrawPolylineOverlap = 0.07f;
+        public const float RoadDrawPolylineOverlap = 0.07f;
 
         // Basisbreiten und Farben pro Straßentyp
         public static readonly float RoadWidthMotorway = 5f;
@@ -114,6 +115,29 @@ namespace cmetro25.Core // Oder z.B. cmetro25.Settings
         public static readonly float QuadtreeRoadServiceBuffer = 10f;
         /// <summary>Puffer (in Bildschirm-Pixeln) für die Quadtree-Abfrage bei der Straßeninterpolation.</summary>
         public static readonly float QuadtreeRoadServiceQueryPixelBuffer = 50f;
+        #endregion
+
+        #region Style Maps – zentral für alle Renderer
+        public static readonly Dictionary<string, (float width, Color color)> RoadStyle
+            = new()
+            {
+                ["motorway"] = (RoadWidthMotorway, RoadColorMotorway),
+                ["primary"] = (RoadWidthPrimaryTrunk, RoadColorPrimaryTrunk),
+                ["trunk"] = (RoadWidthPrimaryTrunk, RoadColorPrimaryTrunk),
+                ["secondary"] = (RoadWidthSecondaryTertiary, RoadColorSecondaryTertiary),
+                ["tertiary"] = (RoadWidthSecondaryTertiary, RoadColorSecondaryTertiary),
+                ["residential"] = (RoadWidthResidentialUnclassified, RoadColorResidentialUnclassified),
+                ["unclassified"] = (RoadWidthResidentialUnclassified, RoadColorResidentialUnclassified)
+            };
+
+        public static readonly Dictionary<string, (float width, Color color)> PolylineStyle
+            = new()
+            {
+                ["river"] = (3f, WaterBodyColor),
+                ["rail"] = (2f, RailColor)
+            };
+
+        public static readonly Color StationColor = Color.LightGreen; // allgemeine Punktfarbe
         #endregion
 
         #region File Paths

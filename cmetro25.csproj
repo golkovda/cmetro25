@@ -41,6 +41,7 @@
   </ItemGroup>
   <ItemGroup>
     <Folder Include="GeoJSON\" />
+    <Folder Include="Graphics\" />
   </ItemGroup>
   <ItemGroup>
     <None Update="GeoJSON\dortmund_boundaries_census_finished.geojson">

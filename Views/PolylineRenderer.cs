@@ -1,8 +1,7 @@
-﻿using System;
+﻿﻿// ----------  Views/PolylineRenderer.cs  ----------
+using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using cmetro25.Core;
 using cmetro25.Models;
 using Microsoft.Xna.Framework;
@@ -11,48 +10,141 @@ using MonoGame.Extended;
 
 namespace cmetro25.Views
 {
-    public class PolylineRenderer
+    /// <summary>
+    ///     Einziger Linien‑Renderer für ALLE Polylines:
+    ///     – generic <see cref="PolylineElement"/> (rivers, rails …)
+    ///     – <see cref="Road"/> inkl. Glättung & Breiten / Farben.
+    /// </summary>
+    public sealed class PolylineRenderer
     {
-        private readonly Texture2D _pixel;
-        public PolylineRenderer(Texture2D px) => _pixel = px;
+        private readonly Texture2D _px;
+        private int _visibleSegments;
 
-        public void Draw(SpriteBatch sb, IEnumerable<PolylineElement> els,
-                         RectangleF visible, MapCamera cam)
+        public PolylineRenderer(Texture2D pixel) => _px = pixel;
+
+        public int VisibleSegmentsLastDraw => _visibleSegments;
+
+        /*------------------------------------------------------------*/
+
+        public void Draw(SpriteBatch sb,
+                         IEnumerable<PolylineElement> generic,
+                         IEnumerable<Road> roads,
+                         RectangleF visible,
+                         MapCamera cam)
         {
-            foreach (var e in els)
-                foreach (var line in e.Lines)
-                    if (line.Count >= 2)
-                    {
-                        GetStyle(e.Kind, cam.Zoom, out var w, out var col);
-                        DrawLine(sb, line, w, col);
-                    }
+            _visibleSegments = 0;
+
+            sb.Begin(transformMatrix: cam.TransformMatrix,
+                     samplerState: SamplerState.AnisotropicClamp);
+
+            if (generic != null)
+                foreach (var el in generic.Where(e => e.BoundingBoxes.Any(b => b.Intersects(visible))))
+                    DrawGeneric(sb, el, cam.Zoom);
+
+            if (roads != null)
+                foreach (var r in roads)
+                    DrawRoad(sb, r, cam.Zoom);
+
+            sb.End();
         }
 
-        private static void GetStyle(string kind, float z, out float w, out Color c)
+        /*----------------  Generic  ----------------*/
+
+        private void DrawGeneric(SpriteBatch sb, PolylineElement el, float zoom)
         {
-            switch (kind)
+            if (!GameSettings.PolylineStyle.TryGetValue(el.Kind, out var s))
+                s = (1f, Color.White);
+
+            float thick = Math.Clamp(s.width / MathF.Sqrt(Math.Max(0.1f, zoom)),
+                                     GameSettings.RoadMinPixelWidth, 6f);
+
+            foreach (var line in el.Lines)
+                DrawLine(sb, line, thick, s.color);
+        }
+
+        /*----------------  Roads  ----------------*/
+
+        private void DrawRoad(SpriteBatch sb, Road r, float zoom)
+        {
+            if (!GameSettings.RoadStyle.TryGetValue(r.RoadType ?? "", out var s))
+                s = (GameSettings.RoadWidthDefault, GameSettings.RoadColorDefault);
+
+            float thick = Math.Clamp(s.width / MathF.Sqrt(Math.Max(0.1f, zoom)),
+                                     GameSettings.RoadMinPixelWidth,
+                                     GameSettings.RoadMaxPixelWidth);
+
+            foreach (var l in r.Lines)
             {
-                case "river": w = 3f; c = GameSettings.WaterBodyColor; break;
-                case "rail": w = 2f; c = GameSettings.RailColor; break;
-                case "road": w = 1.5f; c = GameSettings.RoadColorDefault; break; //TODO: RoadRenderer löschen und hier integrieren
-                default: w = 1f; c = Color.White; break;
+                if (GameSettings.UseRoadSmoothing)
+                    DrawLine(sb, Spline(l, GameSettings.RoadCurveSegments, zoom),
+                             thick, s.color);
+                else
+                    DrawLine(sb, l, thick, s.color);
             }
-            w = Math.Clamp(w / MathF.Sqrt(Math.Max(0.1f, z)),
-                           GameSettings.RoadMinPixelWidth, 6f);
         }
 
-        private void DrawLine(SpriteBatch sb, IList<Vector2> pts, float thick, Color col)
+        /*----------------  Low‑Level  ----------------*/
+
+        private void DrawLine(SpriteBatch sb, IList<Vector2> pts,
+                              float thick, Color col)
         {
+            if (pts == null || pts.Count < 2) return;
+
+            const float overlap = GameSettings.RoadDrawPolylineOverlap;
+
             for (int i = 0; i < pts.Count - 1; i++)
             {
-                var p1 = pts[i]; var p2 = pts[i + 1];
-                var dir = p2 - p1; if (dir.LengthSquared() < 0.0001f) continue;
-                float ang = MathF.Atan2(dir.Y, dir.X);
-                sb.Draw(_pixel, p1, null, col, ang,
-                        Vector2.Zero, new Vector2(dir.Length(), thick),
+                var p1 = pts[i];
+                var p2 = pts[i + 1];
+                var dir = p2 - p1;
+                if (dir.LengthSquared() < 1e-4f) continue;
+
+                float ang  = MathF.Atan2(dir.Y, dir.X);
+                float dist = dir.Length();
+                var   p2o  = p2 + dir * (overlap / dist);
+                float d2   = Vector2.Distance(p1, p2o);
+
+                sb.Draw(_px, p1, null, col, ang, Vector2.Zero,
+                        new Vector2(d2, thick),
                         SpriteEffects.None, 0f);
+
+                _visibleSegments++;
             }
         }
-    }
 
+        /*----------------  Catmull‑Rom  ----------------*/
+
+        private List<Vector2> Spline(List<Vector2> pts, int seg, float zoom)
+        {
+            if (pts.Count < 3) return pts;
+
+            var res = new List<Vector2>(pts.Count * seg);
+            float zFac = MathF.Sqrt(Math.Max(1f, zoom));
+            int   s    = Math.Clamp((int)MathF.Ceiling(seg * zFac), seg, seg * 5);
+
+            for (int i = 0; i < pts.Count - 1; i++)
+            {
+                var p0 = i == 0             ? pts[i]     : pts[i - 1];
+                var p1 = pts[i];
+                var p2 = pts[i + 1];
+                var p3 = i + 2 < pts.Count ? pts[i + 2] : pts[i + 1];
+
+                for (int j = i == 0 ? 0 : 1; j <= s; j++)
+                {
+                    float t  = j / (float)s;
+                    float t2 = t * t;
+                    float t3 = t2 * t;
+
+                    var v = 0.5f * ((2 * p1) +
+                                    (-p0 + p2) * t +
+                                    (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 +
+                                    (-p0 + 3 * p1 - 3 * p2 + p3) * t3);
+
+                    if (res.Count == 0 || Vector2.DistanceSquared(res[^1], v) > 0.01f)
+                        res.Add(v);
+                }
+            }
+            return res;
+        }
+    }
 }
