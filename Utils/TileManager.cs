@@ -43,13 +43,16 @@ public class TileManager
     private readonly List<PointElement> _stations;
 
     private readonly PolygonRenderer _polygonRenderer;
-    private readonly PolylineRenderer _polylineRenderer;
     private readonly PointRenderer _pointRenderer;
 
     private readonly SpriteBatch _spriteBatch;
     private readonly Texture2D _drawPixel;       // rein weiß
     private readonly Texture2D _placeholderTile;
     private int _activeQueueZoomLevel = -1;
+
+    private readonly BasicEffect _meshFx;
+
+    private readonly MapCamera _camera; // NEU: Kamera für Tile-Transformationen
 
 
     // --- NEU: Für Queued Generation ---
@@ -68,20 +71,26 @@ public class TileManager
         RoadService roadService,
         MapLoader mapLoader,
         PolygonRenderer polyRenderer,
-        PolylineRenderer lineRenderer,
         PointRenderer pointRenderer,
         int tileSize,
         List<PolylineElement> rivers,
         List<PolylineElement> rails,
-        List<PointElement> stations)
+        List<PointElement> stations, MapCamera camera)
     {
         _graphicsDevice = graphicsDevice;
+
+        _meshFx = new BasicEffect(_graphicsDevice)
+        {
+            VertexColorEnabled = true,
+            TextureEnabled = false,
+            LightingEnabled = false
+        };
+
         _districts = districts;
         _waterBodies = waterBodies;
         _roadService = roadService;
         _mapLoader = mapLoader;
         _polygonRenderer = polyRenderer;
-        _polylineRenderer = lineRenderer;
         _pointRenderer = pointRenderer;
         _tileSize = tileSize;
         _rivers = rivers;
@@ -96,6 +105,8 @@ public class TileManager
         _placeholderTile = new Texture2D(graphicsDevice, 1, 1);
         _placeholderTile.SetData([GameSettings.MapBackgroundColor]);
 
+        _camera = camera;
+
         _tileCache = new Dictionary<(int zoom, int tileX, int tileY), RenderTarget2D>();
         _mapBounds = ComputeGlobalMapBounds();
     }
@@ -108,10 +119,7 @@ public class TileManager
     {
         return zoomLevel >= 3 ? 0 : 1;
     }
-
-    public int LastPolylineSegmentCount
-        => _polylineRenderer.VisibleSegmentsLastDraw;
-
+    
 
     /// <summary>
     ///     Ermittelt die globalen Karten­grenzen, indem alle bislang
@@ -284,7 +292,7 @@ public class TileManager
                         key, worldRect, _tileSize,
                         water, dists,
                         rivers.Concat(rails).ToList(),
-                        roads, points);
+                        roads, points, _camera.Zoom);
                 });
 
                     /* ---- Continuation separat anhängen ---- */
@@ -323,22 +331,40 @@ public class TileManager
             _graphicsDevice.SetRenderTarget(rt);
             _graphicsDevice.Clear(GameSettings.TileBackgroundColor);
 
-            var mat = res.CalcTransformMatrix(_tileSize);
+            // Welt→Tile-Skalierung + Translation (hast du schon)
+            var matWorldToTile = res.CalcTransformMatrix(_tileSize);
 
-            /* ---- Draw pre‑baked primitives ---- */
-            // a) Polygon‑Fill
-            if (res.FillVerts.Count > 0)
-                _graphicsDevice.DrawUserIndexedPrimitives(
-                    PrimitiveType.TriangleList,
-                    res.FillVerts.ToArray(), 0, res.FillVerts.Count,
-                    res.FillIndices.ToArray(), 0, res.FillIndices.Count / 3);
+            // Orthografische Projektion für genau eine Kachel (Y-Down!)
+            var ortho = Matrix.CreateOrthographicOffCenter(
+                           0, _tileSize,   // left,   right
+                           _tileSize, 0,          // bottom, top
+                           0f, 1f);               // near,   far
 
-            _graphicsDevice.BlendState = BlendState.Opaque;
+            _meshFx.World = matWorldToTile;   // Welt  → Pixel in dieser Kachel
+            _meshFx.View = Matrix.Identity;
+            _meshFx.Projection = ortho;            // Pixel → Clip-Space
+
+            if (res.FillVerts.Count > 0 && res.FillIndices.Count > 0)
+            {
+                foreach (var pass in _meshFx.CurrentTechnique.Passes)
+                {
+                    pass.Apply();
+                    _graphicsDevice.RasterizerState = RasterizerState.CullNone;
+                    _graphicsDevice.DrawUserIndexedPrimitives(
+                        PrimitiveType.TriangleList,
+                        res.FillVerts.ToArray(), 0,               // Vertex-Array, Offset
+                        res.FillVerts.Count,                      // VertexCount
+                        res.FillIndices.ToArray(), 0,             // Index-Array, Offset
+                        res.FillIndices.Count / 3);               // PrimitiveCount
+                }
+            }
+
+            /*_graphicsDevice.BlendState = BlendState.Opaque;
             _graphicsDevice.DepthStencilState = DepthStencilState.None;
-            _graphicsDevice.RasterizerState = RasterizerState.CullNone;
+            _graphicsDevice.RasterizerState = RasterizerState.CullNone;*/
 
             // b) Lines & Points via SpriteBatch
-            _spriteBatch.Begin(transformMatrix: mat,
+            _spriteBatch.Begin(transformMatrix: matWorldToTile,
                 samplerState: SamplerState.AnisotropicClamp);
 
             foreach (var ln in res.Lines)

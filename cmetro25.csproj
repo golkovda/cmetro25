@@ -12,8 +12,11 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="Controllers\**" />
+    <Compile Remove="Graphics\**" />
     <EmbeddedResource Remove="Controllers\**" />
+    <EmbeddedResource Remove="Graphics\**" />
     <None Remove="Controllers\**" />
+    <None Remove="Graphics\**" />
   </ItemGroup>
   <ItemGroup>
     <None Remove="Icon.ico" />
@@ -41,7 +44,6 @@
   </ItemGroup>
   <ItemGroup>
     <Folder Include="GeoJSON\" />
-    <Folder Include="Graphics\" />
   </ItemGroup>
   <ItemGroup>
     <None Update="GeoJSON\dortmund_boundaries_census_finished.geojson">

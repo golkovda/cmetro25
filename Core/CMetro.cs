@@ -226,18 +226,18 @@ namespace cmetro25.Core
 
                 // *** neue Renderer ***
                 var polygonRenderer = new PolygonRenderer(GraphicsDevice, _pixelTexture, _font);
-                var polylineRenderer = new PolylineRenderer(_pixelTexture);
                 var pointRenderer = new PointRenderer(_pixelTexture);
+
+                _mapLoader.SetCamera(_camera);
+                _roadService.SetCamera(_camera);
 
                 _tileManager = new TileManager(GraphicsDevice,
                                                _districts, _waterBodies,
                                                _roadService, _mapLoader,
-                                               polygonRenderer, polylineRenderer, pointRenderer,
+                                               polygonRenderer, pointRenderer,
                                                GameSettings.TileSize,
-                                               _rivers, _rails, _stations);
+                                               _rivers, _rails, _stations, _camera);
 
-                _mapLoader.SetCamera(_camera);
-                _roadService.SetCamera(_camera);
 
                 sw.Stop();
                 Debug.WriteLine($"Renderers ready in {sw.ElapsedMilliseconds} ms");
@@ -469,7 +469,7 @@ namespace cmetro25.Core
             // --- UI / Performance ---
             if (_showPerformanceMenu)
             {
-                int visibleRoadSegments = _tileManager?.LastPolylineSegmentCount ?? 0;
+                int visibleRoadSegments = 0;
                 int queueSize = _tileManager?.GetGenerationQueueSize() ?? 0; // Queue-Größe anzeigen
                 // Füge queueSize zur PerformanceUI.Draw hinzu
                 int visibleTiles = _tileManager?.LastDrawnTileCount ?? 0;

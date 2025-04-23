@@ -3,6 +3,7 @@
 using System;
 using System.Linq;
 using System.Collections.Generic;
+using System.Diagnostics;
 using Microsoft.Xna.Framework;
 using cmetro25.Models;
 using cmetro25.Views;
@@ -22,7 +23,8 @@ namespace cmetro25.Utils
             List<District> districts,
             List<PolylineElement> generics,
             List<Road> roads,
-            List<PointElement> points)
+            List<PointElement> points,
+            float camZoom)
         {
             var res = new TileBuildResult
             {
@@ -62,15 +64,29 @@ namespace cmetro25.Utils
                         res.Lines.Add((ln[i], ln[i + 1], s.color, s.width));
             }
 
-            /* ---- Roads ---- */
+            /* ----- Roads ----- */
             foreach (var rd in roads)
             {
+                // Style
                 if (!GameSettings.RoadStyle.TryGetValue(rd.RoadType ?? "", out var s))
                     s = (GameSettings.RoadWidthDefault, GameSettings.RoadColorDefault);
 
-                foreach (var ln in rd.Lines)
-                    for (int i = 0; i < ln.Count - 1; i++)
-                        res.Lines.Add((ln[i], ln[i + 1], s.color, s.width));
+                /* 1) Wunsch-Pixelbreite für diesen Zoom
+                 *    – exakt derselbe Ausdruck wie früher im SpriteBatch-Renderer */
+                float pxWidth = Math.Clamp(
+                    s.width / MathF.Sqrt(MathF.Max(0.1f, camZoom)),
+                    GameSettings.RoadMinPixelWidth,
+                    GameSettings.RoadMaxPixelWidth);
+
+                /* 2) Pixel  →  Welt  (für diese Kachel)
+                 *    pxPerWorld =   tile-Pixel / tile-Weltbreite                */
+                float pxPerWorld = tilePx / worldRect.Width;
+                float halfWidthW = (pxWidth * 0.5f) / pxPerWorld;
+
+                /* 3) extrudieren – Segment für Segment */
+                foreach (var seg in rd.Lines)
+                    LineMeshBuilder.AddThickLine(seg, halfWidthW, s.color,
+                                                 res.FillVerts, res.FillIndices);
             }
 
             /* ---- Points ---- */
@@ -85,7 +101,7 @@ namespace cmetro25.Utils
         /* ------------ helpers ------------ */
         private static void TessellatePolygon(IList<Vector2> ring, Color col,
                                               List<VertexPositionColor> vOut,
-                                              List<short> iOut)
+                                              List<int> iOut)
         {
             var tess = new LibTessDotNet.Tess();
             var cont = new LibTessDotNet.ContourVertex[ring.Count];
@@ -100,7 +116,7 @@ namespace cmetro25.Utils
                     new Vector3(v.Position.X, v.Position.Y, 0), col));
 
             foreach (var idx in tess.Elements)
-                iOut.Add((short)(baseIndex + idx));
+                iOut.Add(baseIndex + idx);
         }
     }
 }

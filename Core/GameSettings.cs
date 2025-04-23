@@ -58,7 +58,7 @@ namespace cmetro25.Core // Oder z.B. cmetro25.Settings
         /// <summary>Zeit in Sekunden, die der Zoom stabil sein muss, bevor die Interpolation aktualisiert wird.</summary>
         public static readonly double RoadInterpolationUpdateDebounce = 0.2;
         /// <summary>Minimale Breite einer Straße in Pixeln (unabhängig vom Zoom).</summary>
-        public static readonly float RoadMinPixelWidth = 0.5f;
+        public static readonly float RoadMinPixelWidth = 2f;
         /// <summary>Maximale Breite einer Straße in Pixeln (unabhängig vom Zoom).</summary>
         public static readonly float RoadMaxPixelWidth = 15f;
         /// <summary>Pixel-Überlappung für nicht geglättete Liniensegmente im RoadRenderer.</summary>

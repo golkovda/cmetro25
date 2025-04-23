@@ -11,8 +11,8 @@ namespace cmetro25.Utils
         public float WorldX, WorldY, WorldW, WorldH;
 
         // ► CPU‑fertige Daten  (Vertex‑/Index‑Listen pro Primitive‑Typ)
-        public List<VertexPositionColor> FillVerts = [];
-        public List<short> FillIndices = [];
+        public List<VertexPositionColor> FillVerts { get; } = [];
+        public List<int> FillIndices { get; } = [];
         public List<(Vector2 p1, Vector2 p2, Color col, float thick)> Lines = [];
         public List<(Vector2 pos, Color col, float radius)> Points = [];
 
