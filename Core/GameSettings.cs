@@ -45,10 +45,27 @@ namespace cmetro25.Core // Oder z.B. cmetro25.Settings
         #endregion
 
         #region Road Rendering & Interpolation Settings
+
+        public const float RoadGlobalMinPx = 1f;
+        public const float RoadGlobalMaxPx = 10f;
+
+        /*  Absolute Wunschbreiten bei jedem Zoom (können
+         *  später live per Slider geändert werden).               */
+        public static readonly Dictionary<string, float> RoadTargetPx = new()
+        {
+            ["motorway"] = 3f,
+            ["primary"] = 2f,
+            ["trunk"] = 2f,
+            ["secondary"] = 1.6f,
+            ["tertiary"] = 1f,
+            ["residential"] = 1f,
+            ["unclassified"] = 1f
+        };
+
         /// <summary>Basis-Maximalabstand für die Straßeninterpolation.</summary>
         public static readonly float RoadBaseMaxInterpolationDistance = 0.5f;
         /// <summary>Basis-Überlappungsfaktor für Straßen (Interpolation & Rendering).</summary>
-        public static readonly float RoadBaseOverlapFactor = 0.1f;
+        public static readonly float RoadBaseOverlapFactor = 0f;
         /// <summary>Anzahl der Segmente für geglättete Straßenkurven.</summary>
         public static readonly int RoadCurveSegments = 16;
         /// <summary>Gibt an, ob Straßenglättung (Smoothing) verwendet werden soll.</summary>
@@ -58,23 +75,23 @@ namespace cmetro25.Core // Oder z.B. cmetro25.Settings
         /// <summary>Zeit in Sekunden, die der Zoom stabil sein muss, bevor die Interpolation aktualisiert wird.</summary>
         public static readonly double RoadInterpolationUpdateDebounce = 0.2;
         /// <summary>Minimale Breite einer Straße in Pixeln (unabhängig vom Zoom).</summary>
-        public static readonly float RoadMinPixelWidth = 2f;
-        /// <summary>Maximale Breite einer Straße in Pixeln (unabhängig vom Zoom).</summary>
-        public static readonly float RoadMaxPixelWidth = 15f;
+        public static readonly float RoadMinPixelWidth = 10f;
         /// <summary>Pixel-Überlappung für nicht geglättete Liniensegmente im RoadRenderer.</summary>
         public const float RoadDrawPolylineOverlap = 0.07f;
+        
 
         // Basisbreiten und Farben pro Straßentyp
-        public static readonly float RoadWidthMotorway = 5f;
+        public static readonly float RoadWidthMotorway = 1f;
         public static readonly Color RoadColorMotorway = Color.DarkOrange;
-        public static readonly float RoadWidthPrimaryTrunk = 4f;
+        public static readonly float RoadWidthPrimaryTrunk = 1f;
         public static readonly Color RoadColorPrimaryTrunk = Color.DarkGoldenrod;
-        public static readonly float RoadWidthSecondaryTertiary = 3f;
+        public static readonly float RoadWidthSecondaryTertiary = 1f;
         public static readonly Color RoadColorSecondaryTertiary = Color.LightGray;
-        public static readonly float RoadWidthResidentialUnclassified = 2f;
+        public static readonly float RoadWidthResidentialUnclassified = 1f;
         public static readonly Color RoadColorResidentialUnclassified = Color.Gray;
-        public static readonly float RoadWidthDefault = 1.5f;
-        public static readonly Color RoadColorDefault = Color.DarkGray;
+        public static readonly float RoadWidthDefault = 1f;
+        public static readonly Color RoadColorDefault = Color.Crimson;
+        
         #endregion
 
         #region District Rendering Settings
@@ -132,7 +149,8 @@ namespace cmetro25.Core // Oder z.B. cmetro25.Settings
             = new()
             {
                 ["river"] = (3f, WaterBodyColor),
-                ["rail"] = (2f, RailColor)
+                ["rail"] = (1.6f, RailColor),
+                ["district"] = (3f, DistrictBorderColor)
             };
 
         public static readonly Color StationColor = Color.LightGreen; // allgemeine Punktfarbe
@@ -147,6 +165,15 @@ namespace cmetro25.Core // Oder z.B. cmetro25.Settings
         public static readonly string RailsGeoJsonPath = Path.Combine(basePath, "GeoJson", "dortmund_rails_finished.geojson");
         public static readonly string RiversGeoJsonPath = Path.Combine(basePath, "GeoJson", "dortmund_rivers_finished.geojson");
         public static readonly string StationsGeoJsonPath = Path.Combine(basePath, "GeoJson", "dortmund_stations_finished.geojson");
+        #endregion
+
+        #region Layer Visibility (run-time toggles)
+        public static bool ShowDistricts = true;
+        public static bool ShowWaterBodies = true;
+        public static bool ShowRails = true;
+        public static bool ShowRivers = true;
+        public static bool ShowRoads = true;
+        public static bool ShowStations = true;
         #endregion
     }
 }

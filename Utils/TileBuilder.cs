@@ -26,6 +26,8 @@ namespace cmetro25.Utils
             List<PointElement> points,
             float camZoom)
         {
+            float PxToWorld(float px) => (px / tilePx) * worldRect.Width;
+
             var res = new TileBuildResult
             {
                 Key = key,
@@ -36,66 +38,94 @@ namespace cmetro25.Utils
             };
 
             /* ---- Wasser → Tesselation ---- */
-            foreach (var wb in water)
-                foreach (var ring in wb.Polygons)
-                    TessellatePolygon(ring, GameSettings.WaterBodyColor,
+            if (GameSettings.ShowWaterBodies)
+                foreach (var wb in water)
+                    foreach (var ring in wb.Polygons)
+                        TessellatePolygon(ring, GameSettings.WaterBodyColor,
                                       res.FillVerts, res.FillIndices);
 
-            /* ---- Distrikt‑Outlines + Labels ---- */
-            foreach (var d in districts)
+            /* ---- Distrikt-Outlines & Labels ---- */
+            if (GameSettings.ShowDistricts)
             {
-                foreach (var ring in d.Polygons)
-                    for (int i = 0; i < ring.Count - 1; i++)
-                        res.Lines.Add((ring[i], ring[i + 1],
-                                       GameSettings.DistrictBorderColor,
-                                       Math.Max(0.4f, 1f)));
+                if (!GameSettings.PolylineStyle.TryGetValue("district", out var style))
+                    style = (2f, Color.White);
 
-                // Label später im Draw‑Call (Text geht nicht prebuild)
+                float halfW = (style.width * 0.5f);
+
+                foreach (var d in districts)
+                {
+                    foreach (var ring in d.Polygons)
+                        LineMeshBuilder.AddThickLine(
+                            ring, halfW, GameSettings.DistrictBorderColor,
+                            res.FillVerts, res.FillIndices);
+
+                    // Label weiterhin später per SpriteBatch
+                }
             }
 
-            /* ---- Generische Linien (Rivers/Rails) ---- */
+            /* ---- Rivers / Rails ---- */
             foreach (var g in generics)
             {
-                if (!GameSettings.PolylineStyle.TryGetValue(g.Kind, out var s))
-                    s = (1f, Color.White);
+                if ((g.Kind == "rail" && !GameSettings.ShowRails) ||
+                    (g.Kind == "river" && !GameSettings.ShowRivers))
+                    continue;
 
-                foreach (var ln in g.Lines)
-                    for (int i = 0; i < ln.Count - 1; i++)
-                        res.Lines.Add((ln[i], ln[i + 1], s.color, s.width));
+                if (!GameSettings.PolylineStyle.TryGetValue(g.Kind, out var style))
+                    style = (2f, Color.White);                // fallback
+
+                float halfW = (style.width * 0.5f);
+
+                foreach (var seg in g.Lines)
+                    LineMeshBuilder.AddThickLine(
+                        seg, halfW, style.color,
+                        res.FillVerts, res.FillIndices);
             }
 
             /* ----- Roads ----- */
-            foreach (var rd in roads)
+            if (GameSettings.ShowRoads)
             {
-                // Style
-                if (!GameSettings.RoadStyle.TryGetValue(rd.RoadType ?? "", out var s))
-                    s = (GameSettings.RoadWidthDefault, GameSettings.RoadColorDefault);
+                foreach (var rd in roads)
+                {
+                    // TileBuilder.BuildTile – direkt vor dem TryGetValue-Aufruf
+                    string keyType = rd.RoadType ?? "";
+                    if (keyType.EndsWith("_link", StringComparison.OrdinalIgnoreCase))
+                        keyType = keyType[..^5];          // "_link" abschneiden
 
-                /* 1) Wunsch-Pixelbreite für diesen Zoom
-                 *    – exakt derselbe Ausdruck wie früher im SpriteBatch-Renderer */
-                float pxWidth = Math.Clamp(
-                    s.width / MathF.Sqrt(MathF.Max(0.1f, camZoom)),
-                    GameSettings.RoadMinPixelWidth,
-                    GameSettings.RoadMaxPixelWidth);
+                    // dann wie bisher:
+                    if (!GameSettings.RoadStyle.TryGetValue(keyType, out var s))
+                        s = (GameSettings.RoadWidthDefault, GameSettings.RoadColorDefault);
 
-                /* 2) Pixel  →  Welt  (für diese Kachel)
-                 *    pxPerWorld =   tile-Pixel / tile-Weltbreite                */
-                float pxPerWorld = tilePx / worldRect.Width;
-                float halfWidthW = (pxWidth * 0.5f) / pxPerWorld;
+                    float screenPx = GameSettings.RoadTargetPx.TryGetValue(keyType, out var p)
+                                     ? p : GameSettings.RoadWidthDefault;
 
-                /* 3) extrudieren – Segment für Segment */
-                foreach (var seg in rd.Lines)
-                    LineMeshBuilder.AddThickLine(seg, halfWidthW, s.color,
-                                                 res.FillVerts, res.FillIndices);
+                    /* b) global clamp (Bildschirm-Ebene!) */
+                    screenPx = Math.Clamp(screenPx,
+                                          GameSettings.RoadGlobalMinPx,
+                                          GameSettings.RoadGlobalMaxPx);
+
+                    /* c) in Welt-Einheiten umrechnen:
+                           L_world = L_screen / Zoom                         */
+                    float halfWidthWorld = (screenPx * 0.5f) / 1;
+
+                    /* d) Mesh extrudieren */
+                    foreach (var seg in rd.Lines)
+                        LineMeshBuilder.AddThickLine(seg, halfWidthWorld, s.color,
+                                                     res.FillVerts, res.FillIndices);
+                }
             }
 
             /* ---- Points ---- */
-            foreach (var p in points)
+            if (GameSettings.ShowStations)
             {
-                var col = p.Kind == "station" ? GameSettings.StationColor : Color.White;
-                res.Points.Add((p.Position, col, 5f));
+                foreach (var p in points)
+                {
+                    var col = p.Kind == "station" ? GameSettings.StationColor : Color.White;
+                    res.Points.Add((p.Position, col, 5f));
+                }
             }
+
             return res;
+            
         }
 
         /* ------------ helpers ------------ */

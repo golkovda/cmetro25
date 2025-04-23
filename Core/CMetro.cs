@@ -110,7 +110,7 @@ namespace cmetro25.Core
             _pixelTexture.SetData(new[] { Color.White });
 
             // Initialisiere UI-Komponenten, die keine Kartendaten brauchen
-            _performanceUI = new PerformanceUI(_font);
+            _performanceUI = new PerformanceUI(_font, GraphicsDevice);
 
             // NEU: Starte den asynchronen Ladevorgang
             StartLoadingMapData();
@@ -315,6 +315,16 @@ namespace cmetro25.Core
             HandleZoomDebounce(gameTime);
             UpdatePerformanceCounters(gameTime);
 
+            (bool sChanged, bool tChanged) = (false, false);
+            if (_showPerformanceMenu)
+                (sChanged, tChanged) = _performanceUI.Update();
+
+            if ((sChanged || tChanged) && _mapDataReady && _tileManager != null)
+            {
+                _tileManager.ClearCache();
+                RequestTilesForCurrentView();
+            }
+
             base.Update(gameTime);
         }
 
@@ -469,29 +479,10 @@ namespace cmetro25.Core
             // --- UI / Performance ---
             if (_showPerformanceMenu)
             {
-                int visibleRoadSegments = 0;
-                int queueSize = _tileManager?.GetGenerationQueueSize() ?? 0; // Queue-Größe anzeigen
-                // Füge queueSize zur PerformanceUI.Draw hinzu
-                int visibleTiles = _tileManager?.LastDrawnTileCount ?? 0;
-                int tileCacheCount = _tileManager?.TileCacheCount ?? 0;
-                int genQueueSize = _tileManager?.GenerationQueueSize ?? 0;
-                int buildQueueSize = _tileManager?.BuildQueueSize ?? 0;
-                int completedQueueSize = _tileManager?.CompletedQueueSize ?? 0;
-                long memMB = GC.GetTotalMemory(false) / (1024 * 1024);
                 _performanceUI.Draw(_spriteBatch,
-                                    _fps,
-                                    _updatesPerSecond,
-                                    _camera,
-                                    _districts, _roads,
-                                    visibleRoadSegments,
-                                    tileZoomLevel,
-                                    /* neu */
-                                    visibleTiles,
-                                    tileCacheCount,
-                                    genQueueSize,
-                                    buildQueueSize,
-                                    completedQueueSize,
-                                    memMB);
+                        _fps, _updatesPerSecond,
+                        _tileManager?.LastDrawnTileCount ?? 0,
+                        GC.GetTotalMemory(false) / (1024 * 1024));
             }
 
             base.Draw(gameTime);

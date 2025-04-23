@@ -1,70 +1,118 @@
 ﻿// ----------  UI/PerformanceUI.cs  ----------
+using System.Collections.Generic;
 using System.Text;
+using cmetro25.Core;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
-using System.Collections.Generic;
-using cmetro25.Models;
-using cmetro25.Views;
 
 namespace cmetro25.UI
 {
-    /// <summary>
-    /// Overlay für FPS, Speicher, Tile‑Queues usw.
-    /// </summary>
     public sealed class PerformanceUI
     {
         private readonly SpriteFont _font;
+        private readonly Texture2D _px;
         private readonly StringBuilder _sb = new(512);
 
-        public PerformanceUI(SpriteFont font) => _font = font;
+        /* ----------------- GUI-Elemente ----------------- */
+        private readonly List<Slider> _sliders = new();
+        private readonly List<Toggle> _toggles = new();
+
+        public PerformanceUI(SpriteFont font, GraphicsDevice gd)
+        {
+            _font = font;
+            _px = new Texture2D(gd, 1, 1);
+            _px.SetData(new[] { Color.White });
+
+            /* ---------- Slider-Definitions ---------- */
+            int x = 20, y = 230, w = 180, h = 4, gap = 40;
+            void AddSlider(string key, string label)
+            {
+                float start = GameSettings.RoadTargetPx.TryGetValue(key, out var v) ? v : 1f;
+                _sliders.Add(new Slider(label, 1f, 5f, start,
+                               new Rectangle(x, y + _sliders.Count * gap, w, h), _px));
+            }
+            AddSlider("motorway", "Motorway");
+            AddSlider("primary", "Primary");
+            AddSlider("trunk", "Trunk");
+            AddSlider("secondary", "Secondary");
+            AddSlider("tertiary", "Tertiary");
+            AddSlider("residential", "Residential");
+            AddSlider("unclassified", "Unclassified");
+
+            /* ---------- Layer-Toggles ---------- */
+            int tx = 250, ty = 230, tGap = 30, b = 18;
+            void AddToggle(ref bool flag, string label)
+            {
+                _toggles.Add(new Toggle(label, flag,
+                             new Rectangle(tx, ty + _toggles.Count * tGap, b, b), _px));
+            }
+            AddToggle(ref GameSettings.ShowDistricts, "Boundaries");
+            AddToggle(ref GameSettings.ShowWaterBodies, "Lakes");
+            AddToggle(ref GameSettings.ShowRails, "Rails");
+            AddToggle(ref GameSettings.ShowRivers, "Rivers");
+            AddToggle(ref GameSettings.ShowRoads, "Roads");
+            AddToggle(ref GameSettings.ShowStations, "Stations");
+        }
+
+        private MouseState _prevMouse;
 
         /// <summary>
-        ///     Zeichnet das Performance‑Overlay.
-        /// </summary>
-        public void Draw(
-            SpriteBatch spriteBatch,
-            int fps,
-            int updatesPerSecond,
-            MapCamera cam,
-            List<District> districts,
-            List<Road> roads,
-            int drawnRoadSegs,
-            int tileZoomLevel,
-            /* --- neue Kennzahlen --- */
-            int visibleTiles,
-            int tileCacheCount,
-            int genQueue,
-            int buildQueue,
-            int completedQueue,
-            long memMB)
+        /// Aktualisiert Slider & Toggles.  
+        /// <br/>Returns `(sliderChanged, toggleChanged)` Flags.</summary>
+        public (bool slider, bool toggle) Update()
         {
-            /* -------- Text zusammenstellen -------- */
+            var ms = Mouse.GetState();
+            var prev = _prevMouse;
+            _prevMouse = ms;
+
+            bool anySlider = false, anyToggle = false;
+
+            foreach (var s in _sliders)
+                if (s.Update(ms, prev))
+                    anySlider = true;
+
+            foreach (var t in _toggles)
+                if (t.Update(ms))
+                    anyToggle = true;
+
+            if (anySlider)
+                foreach (var s in _sliders)
+                    GameSettings.RoadTargetPx[s.Label.ToLower()] = s.Value;
+
+
+            // Toggle-Werte direkt in GameSettings flags zurückschreiben
+            GameSettings.ShowDistricts = _toggles[0].Value;
+            GameSettings.ShowWaterBodies = _toggles[1].Value;
+            GameSettings.ShowRails = _toggles[2].Value;
+            GameSettings.ShowRivers = _toggles[3].Value;
+            GameSettings.ShowRoads = _toggles[4].Value;
+            GameSettings.ShowStations = _toggles[5].Value;
+
+            return (anySlider, anyToggle);
+        }
+
+        /* ---------- Text & GUI zeichnen ---------- */
+        public void Draw(SpriteBatch sb, int fps, int ups,
+                         int visTiles, long memMB)
+        {
             _sb.Clear();
             _sb.AppendLine($"FPS: {fps}");
-            _sb.AppendLine($"Updates/Sec: {updatesPerSecond}");
-            _sb.AppendLine($"Frame ms: {(fps > 0 ? 1000f / fps : 0):F1}");
-            _sb.AppendLine($"Update ms: {(updatesPerSecond > 0 ? 1000f / updatesPerSecond : 0):F1}");
-            _sb.AppendLine($"Camera: {cam.Position.X:F0}, {cam.Position.Y:F0}");
-            _sb.AppendLine($"Zoom: {cam.Zoom:F2}");
-            _sb.AppendLine($"TileZoomLevel: {tileZoomLevel}");
-            _sb.AppendLine($"Visible Tiles: {visibleTiles}");
-            _sb.AppendLine($"Tile Cache: {tileCacheCount}");
-            _sb.AppendLine($"Gen Queue: {genQueue}");
-            _sb.AppendLine($"Build Queue: {buildQueue}");
-            _sb.AppendLine($"Results Pending: {completedQueue}");
-            _sb.AppendLine($"Districts: {districts?.Count ?? 0}");
-            _sb.AppendLine($"Roads: {roads?.Count ?? 0}");
-            _sb.AppendLine($"Drawn Road Segs: {drawnRoadSegs}");
-            _sb.AppendLine($"Mem (MB): {memMB}");
+            _sb.AppendLine($"UPS: {ups}");
+            _sb.AppendLine($"Tiles: {visTiles}");
+            _sb.AppendLine($"Mem MB: {memMB}");
 
-            var txt = _sb.ToString();
+            sb.Begin();
+            sb.DrawString(_font, _sb, new Vector2(11, 11), Color.Black * 0.8f);
+            sb.DrawString(_font, _sb, new Vector2(10, 10), Color.Yellow);
 
-            /* -------- Zeichnen mit Schatten -------- */
-            spriteBatch.Begin();
-            spriteBatch.DrawString(_font, txt, new Vector2(11, 11), Color.Black * 0.8f);
-            spriteBatch.DrawString(_font, txt, new Vector2(10, 10), Color.Yellow);
-            spriteBatch.End();
+            foreach (var s in _sliders)
+                s.Draw(sb, _font, Color.White, Color.Gray, Color.Orange);
+
+            foreach (var t in _toggles)
+                t.Draw(sb, _font, Color.White, Color.Gray);
+
+            sb.End();
         }
     }
 }
