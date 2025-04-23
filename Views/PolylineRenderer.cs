@@ -26,7 +26,7 @@ namespace cmetro25.Views
 
         /*------------------------------------------------------------*/
 
-        public void Draw(SpriteBatch sb,
+        /*public void Draw(SpriteBatch sb,
                  IEnumerable<PolylineElement> generic,
                  IEnumerable<Road> roads,
                  RectangleF visible,
@@ -41,12 +41,12 @@ namespace cmetro25.Views
             if (roads != null)
                 foreach (var r in roads)
                     DrawRoad(sb, r, cam.Zoom);
-        }
+        }*/
 
 
         /*----------------  Generic  ----------------*/
 
-        private void DrawGeneric(SpriteBatch sb, PolylineElement el, float zoom)
+        /*private void DrawGeneric(SpriteBatch sb, PolylineElement el, float zoom)
         {
             if (!GameSettings.PolylineStyle.TryGetValue(el.Kind, out var s))
                 s = (1f, Color.White);
@@ -56,11 +56,11 @@ namespace cmetro25.Views
 
             foreach (var line in el.Lines)
                 DrawLine(sb, line, thick, s.color);
-        }
+        }*/
 
         /*----------------  Roads  ----------------*/
 
-        private void DrawRoad(SpriteBatch sb, Road r, float zoom)
+        /*private void DrawRoad(SpriteBatch sb, Road r, float zoom)
         {
             if (!GameSettings.RoadStyle.TryGetValue(r.RoadType ?? "", out var s))
                 s = (GameSettings.RoadWidthDefault, GameSettings.RoadColorDefault);
@@ -77,11 +77,11 @@ namespace cmetro25.Views
                 else
                     DrawLine(sb, l, thick, s.color);
             }
-        }
+        }*/
 
         /*----------------  Low‑Level  ----------------*/
 
-        private void DrawLine(SpriteBatch sb, IList<Vector2> pts,
+        /*private void DrawLine(SpriteBatch sb, IList<Vector2> pts,
                               float thick, Color col)
         {
             if (pts == null || pts.Count < 2) return;
@@ -108,7 +108,7 @@ namespace cmetro25.Views
             }
         }
 
-        /*----------------  Catmull‑Rom  ----------------*/
+        /*----------------  Catmull‑Rom  ----------------#1#
 
         private List<Vector2> Spline(List<Vector2> pts, int seg, float zoom)
         {
@@ -142,5 +142,6 @@ namespace cmetro25.Views
             }
             return res;
         }
+    */
     }
 }

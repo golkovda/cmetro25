@@ -51,6 +51,8 @@ public class TileManager
     private readonly Texture2D _placeholderTile;
     private int _activeQueueZoomLevel = -1;
 
+    private readonly BasicEffect _meshFx;
+
 
     // --- NEU: Für Queued Generation ---
     private readonly ConcurrentQueue<(int zoom, int x, int y)> _tileGenerationQueue = new();
@@ -76,6 +78,14 @@ public class TileManager
         List<PointElement> stations)
     {
         _graphicsDevice = graphicsDevice;
+
+        _meshFx = new BasicEffect(_graphicsDevice)
+        {
+            VertexColorEnabled = true,
+            TextureEnabled = false,
+            LightingEnabled = false
+        };
+
         _districts = districts;
         _waterBodies = waterBodies;
         _roadService = roadService;
@@ -323,22 +333,40 @@ public class TileManager
             _graphicsDevice.SetRenderTarget(rt);
             _graphicsDevice.Clear(GameSettings.TileBackgroundColor);
 
-            var mat = res.CalcTransformMatrix(_tileSize);
+            // Welt→Tile-Skalierung + Translation (hast du schon)
+            var matWorldToTile = res.CalcTransformMatrix(_tileSize);
 
-            /* ---- Draw pre‑baked primitives ---- */
-            // a) Polygon‑Fill
-            if (res.FillVerts.Count > 0)
-                _graphicsDevice.DrawUserIndexedPrimitives(
-                    PrimitiveType.TriangleList,
-                    res.FillVerts.ToArray(), 0, res.FillVerts.Count,
-                    res.FillIndices.ToArray(), 0, res.FillIndices.Count / 3);
+            // Orthografische Projektion für genau eine Kachel (Y-Down!)
+            var ortho = Matrix.CreateOrthographicOffCenter(
+                           0, _tileSize,   // left,   right
+                           _tileSize, 0,          // bottom, top
+                           0f, 1f);               // near,   far
 
-            _graphicsDevice.BlendState = BlendState.Opaque;
+            _meshFx.World = matWorldToTile;   // Welt  → Pixel in dieser Kachel
+            _meshFx.View = Matrix.Identity;
+            _meshFx.Projection = ortho;            // Pixel → Clip-Space
+
+            if (res.FillVerts.Count > 0 && res.FillIndices.Count > 0)
+            {
+                foreach (var pass in _meshFx.CurrentTechnique.Passes)
+                {
+                    pass.Apply();
+
+                    _graphicsDevice.DrawUserIndexedPrimitives(
+                        PrimitiveType.TriangleList,
+                        res.FillVerts.ToArray(), 0,               // Vertex-Array, Offset
+                        res.FillVerts.Count,                      // VertexCount
+                        res.FillIndices.ToArray(), 0,             // Index-Array, Offset
+                        res.FillIndices.Count / 3);               // PrimitiveCount
+                }
+            }
+
+            /*_graphicsDevice.BlendState = BlendState.Opaque;
             _graphicsDevice.DepthStencilState = DepthStencilState.None;
-            _graphicsDevice.RasterizerState = RasterizerState.CullNone;
+            _graphicsDevice.RasterizerState = RasterizerState.CullNone;*/
 
             // b) Lines & Points via SpriteBatch
-            _spriteBatch.Begin(transformMatrix: mat,
+            _spriteBatch.Begin(transformMatrix: matWorldToTile,
                 samplerState: SamplerState.AnisotropicClamp);
 
             foreach (var ln in res.Lines)

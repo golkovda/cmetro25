@@ -3,6 +3,7 @@
 using System;
 using System.Linq;
 using System.Collections.Generic;
+using System.Diagnostics;
 using Microsoft.Xna.Framework;
 using cmetro25.Models;
 using cmetro25.Views;
@@ -65,12 +66,21 @@ namespace cmetro25.Utils
             /* ---- Roads ---- */
             foreach (var rd in roads)
             {
+                // Stil holen
                 if (!GameSettings.RoadStyle.TryGetValue(rd.RoadType ?? "", out var s))
                     s = (GameSettings.RoadWidthDefault, GameSettings.RoadColorDefault);
 
-                foreach (var ln in rd.Lines)
-                    for (int i = 0; i < ln.Count - 1; i++)
-                        res.Lines.Add((ln[i], ln[i + 1], s.color, s.width));
+                // ►  Breite liegt schon in Welt-Einheiten vor!
+                float halfWidthW = s.width * 0.5f;
+
+                // jedes Teil-Segment separat extrudieren
+                foreach (var seg in rd.Lines)
+                    LineMeshBuilder.AddThickLine(
+                        seg,          // Punktliste
+                        halfWidthW,
+                        s.color,
+                        res.FillVerts,
+                        res.FillIndices);
             }
 
             /* ---- Points ---- */
@@ -85,7 +95,7 @@ namespace cmetro25.Utils
         /* ------------ helpers ------------ */
         private static void TessellatePolygon(IList<Vector2> ring, Color col,
                                               List<VertexPositionColor> vOut,
-                                              List<short> iOut)
+                                              List<int> iOut)
         {
             var tess = new LibTessDotNet.Tess();
             var cont = new LibTessDotNet.ContourVertex[ring.Count];
@@ -100,7 +110,7 @@ namespace cmetro25.Utils
                     new Vector3(v.Position.X, v.Position.Y, 0), col));
 
             foreach (var idx in tess.Elements)
-                iOut.Add((short)(baseIndex + idx));
+                iOut.Add(baseIndex + idx);
         }
     }
 }

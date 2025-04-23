@@ -127,7 +127,7 @@ namespace cmetro25.Views
             var verts = tess.Vertices.Select(v => new VertexPositionColor(
                                 new Vector3(v.Position.X, v.Position.Y, 0), col))
                                      .ToArray();
-            var idxs  = tess.Elements.Select(i => (short)i).ToArray();
+            var idxs  = tess.Elements.Select(i => i).ToArray();
 
             _gd.DrawUserIndexedPrimitives(PrimitiveType.TriangleList,
                                           verts, 0, verts.Length,
