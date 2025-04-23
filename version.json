@@ -14,7 +14,7 @@
     }
   },
   "release": {
-    "branchName": "dev/v{version}",
+    "branchName": "dev/v{version}-buggy",
     "versionIncrement": "build"
   }
 }
