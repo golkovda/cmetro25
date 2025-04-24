@@ -18,11 +18,17 @@ namespace cmetro25.UI
         private readonly List<Slider> _sliders = new();
         private readonly List<Toggle> _toggles = new();
 
+        private readonly Toggle _themeToggle;
+
         public PerformanceUI(SpriteFont font, GraphicsDevice gd)
         {
             _font = font;
             _px = new Texture2D(gd, 1, 1);
             _px.SetData(new[] { Color.White });
+
+            int m = 18;
+            _themeToggle = new Toggle("Dark", GameSettings.IsDarkTheme,
+                          new Rectangle(250, 170, m, m), _px);
 
             /* ---------- Slider-Definitions ---------- */
             int x = 20, y = 230, w = 180, h = 4, gap = 40;
@@ -62,9 +68,13 @@ namespace cmetro25.UI
         /// <br/>Returns `(sliderChanged, toggleChanged)` Flags.</summary>
         public (bool slider, bool toggle) Update()
         {
+
             var ms = Mouse.GetState();
             var prev = _prevMouse;
             _prevMouse = ms;
+
+            bool themeChanged = _themeToggle.Update(ms);
+            if (themeChanged) GameSettings.ToggleTheme();
 
             bool anySlider = false, anyToggle = false;
 
@@ -89,7 +99,7 @@ namespace cmetro25.UI
             GameSettings.ShowRoads = _toggles[4].Value;
             GameSettings.ShowStations = _toggles[5].Value;
 
-            return (anySlider, anyToggle);
+            return (anySlider, anyToggle || themeChanged);
         }
 
         /* ---------- Text & GUI zeichnen ---------- */
@@ -102,7 +112,9 @@ namespace cmetro25.UI
             _sb.AppendLine($"Tiles: {visTiles}");
             _sb.AppendLine($"Mem MB: {memMB}");
 
+
             sb.Begin();
+            _themeToggle.Draw(sb, _font, Color.White, Color.Gray);
             sb.DrawString(_font, _sb, new Vector2(11, 11), Color.Black * 0.8f);
             sb.DrawString(_font, _sb, new Vector2(10, 10), Color.Yellow);
 

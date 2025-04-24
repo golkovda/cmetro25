@@ -1,179 +1,206 @@
-﻿using System;
-using System.Collections.Generic;
-using System.IO;
+﻿// cmetro25.Core/GameSettings.cs – Einheitliche Settings mit Theme‑Paletten
+// -----------------------------------------------------------------------------
 using Microsoft.Xna.Framework;
+using System;
+using System.Collections.Generic;
 
-namespace cmetro25.Core // Oder z.B. cmetro25.Settings
+namespace cmetro25.Core
 {
     /// <summary>
-    /// Zentrale Konfigurationsklasse für Spieleinstellungen und Konstanten.
+    /// Zentrale Spielkonstanten & Themes.
+    /// Alle farbabhängigen Eigenschaften leiten sich aus der aktuellen
+    /// Theme‑Palette ab (Light&nbsp;/ Dark). Umschaltbar zur Laufzeit.
     /// </summary>
     public static class GameSettings
     {
-        #region Camera & Input Settings
-        /// <summary>Minimaler Zoomfaktor der Kamera.</summary>
+        /* =====================================================================
+         * 1)  THEME PALETTEN
+         * ===================================================================*/
+        public record ThemePalette(
+            Color MapBackground,
+            Color TileBackground,
+            Color WaterBody,
+            Color Rail,
+            Color DistrictBorder,
+            Color DistrictLabel,
+            Color Station);
+
+        public static readonly ThemePalette LightPalette = new(
+            MapBackground : new Color(245, 245, 245),          // sehr helles Grau
+            TileBackground: new Color(245, 245, 245),
+            WaterBody     : new Color(116, 174, 219),           // helles Blau
+            Rail          : new Color(120, 120, 120),           // Mittelgrau
+            DistrictBorder: new Color(120, 120, 120),
+            DistrictLabel : Color.Black,
+            Station       : new Color( 40, 140,  40));
+
+        public static readonly ThemePalette DarkPalette = new(
+            MapBackground : new Color(31, 31, 31),             // bestehendes Dunkelgrau
+            TileBackground: new Color(31, 31, 31),
+            WaterBody     : new Color(113, 153, 235),          // sattes Blau
+            Rail          : Color.Gray,
+            DistrictBorder: new Color(143, 37, 37),
+            DistrictLabel : new Color(220, 220, 220),
+            Station       : Color.LightGreen);
+
+        // === helpers ===============================================================
+        private static Color Lighten(Color c, float f) =>    // f > 1 → brighter
+            new Color(Math.Clamp((int)(c.R * f), 0, 255),
+                      Math.Clamp((int)(c.G * f), 0, 255),
+                      Math.Clamp((int)(c.B * f), 0, 255));
+
+        // === dynamic colours =======================================================
+        public static Color RailDark => _current.Rail;              // old one
+        public static Color RailLight => Lighten(_current.Rail, 1.7f);
+
+        private static ThemePalette _current = DarkPalette;
+        public static ThemePalette CurrentPalette => _current;
+        public static bool IsDarkTheme => _current == DarkPalette;
+        public static void ToggleTheme() => _current = IsDarkTheme ? LightPalette : DarkPalette;
+
+
+        /* =====================================================================
+         * 2)  FARBEIGENSCHAFTEN – leiten sich aus Palette ab
+         * ===================================================================*/
+        public static Color MapBackgroundColor   => _current.MapBackground;
+        public static Color TileBackgroundColor  => _current.TileBackground;
+        public static Color WaterBodyColor       => _current.WaterBody;
+        public static Color RailColor           => _current.Rail;
+        public static Color DistrictBorderColor => _current.DistrictBorder;
+        public static Color DistrictLabelColor  => _current.DistrictLabel;
+        public static Color StationColor        => _current.Station;
+
+
+        /* =====================================================================
+         * 3)  CAMERA & INPUT
+         * ===================================================================*/
         public static readonly float CameraZoomMin = 0.35f;
-        /// <summary>Maximaler Zoomfaktor der Kamera.</summary>
-        //@@warn Zoom ab 31f löst Probleme mit der Tile-Generierung aus.
-        public static readonly float CameraZoomMax = 31f;
-        /// <summary>Multiplikator für Zoomänderungen per Mausrad.</summary>
+        public static readonly float CameraZoomMax = 31f;   // >31 führt zu Tile‑Artefakten
         public static readonly float CameraZoomStepFactor = 1.1f;
-        #endregion
 
-        #region Map Loading & Coordinates
-        /// <summary>Referenz X-Koordinate für die Transformation.</summary>
-        public static readonly double ReferenceCoordX = 388418.7;
-        /// <summary>Referenz Y-Koordinate für die Transformation.</summary>
-        public static readonly double ReferenceCoordY = 5713965.5;
-        /// <summary>Skalierungsfaktor für die Koordinatentransformation.</summary>
-        public static readonly float CoordScaleFactor = 0.1f;
-        #endregion
+        /* =====================================================================
+         * 4)  MAP LOADING & KOORD‑TRANSFORM
+         * ===================================================================*/
+        public static readonly double ReferenceCoordX = 388_418.7;
+        public static readonly double ReferenceCoordY = 5_713_965.5;
+        public static readonly float  CoordScaleFactor = 0.1f;
 
-        #region Tile System Settings
-        /// <summary>Größe der Kacheln in Pixeln.</summary>
-        public static readonly int TileSize = 4096; // Kleinere Größe empfohlen zum Testen
-        /// <summary>Maximale Anzahl von Kacheln, die pro Update-Frame generiert werden.</summary>
-        public static readonly int MaxTilesToGeneratePerFrame = 1;
-        /// <summary>Maximaler berechneter Zoomlevel für das Tiling-System.</summary>
-        public static readonly int MaxTileZoomLevel = 5;
-        /// <summary>Minimale Kamerabewegung (in Bildschirm-Pixeln), um neue Kacheln anzufordern.</summary>
+        /* =====================================================================
+         * 5)  TILE‑SYSTEM
+         * ===================================================================*/
+        public static readonly int   TileSize                       = 4096;
+        public static readonly int   MaxTilesToGeneratePerFrame     = 1;
+        public static readonly int   MaxTileZoomLevel               = 5;
         public static readonly float CameraMoveThresholdForTileRequest = 100f;
-        /// <summary>Minimale Zoomänderung (absolut), um neue Kacheln anzufordern.</summary>
         public static readonly float CameraZoomThresholdForTileRequest = 0.4f;
-        /// <summary>QueryBuffer in Weltkoordinaten</summary>
-        public static readonly float TileBoundsQueryBuffer = 30f;
-        #endregion
+        public static readonly float TileBoundsQueryBuffer          = 30f;
 
-        #region Road Rendering & Interpolation Settings
-
+        /* =====================================================================
+         * 6)  ROAD RENDERING (Breiten & Farben)
+         * ===================================================================*/
         public const float RoadGlobalMinPx = 1f;
         public const float RoadGlobalMaxPx = 10f;
 
-        /*  Absolute Wunschbreiten bei jedem Zoom (können
-         *  später live per Slider geändert werden).               */
-        public static readonly Dictionary<string, float> RoadTargetPx = new()
+        public static readonly Dictionary<string,float> RoadTargetPx = new()
         {
-            ["motorway"] = 3f,
-            ["primary"] = 2f,
-            ["trunk"] = 2f,
-            ["secondary"] = 1.6f,
-            ["tertiary"] = 1f,
-            ["residential"] = 1f,
+            ["motorway"]     = 3f,
+            ["primary"]      = 2f,
+            ["trunk"]        = 2f,
+            ["secondary"]    = 1.6f,
+            ["tertiary"]     = 1f,
+            ["residential"]  = 1f,
             ["unclassified"] = 1f
         };
 
-        /// <summary>Basis-Maximalabstand für die Straßeninterpolation.</summary>
+        // ► Road‑Breiten & Farben (World, nicht Screen)
+        public static readonly float  RoadWidthDefault               = 1f;
+        public static readonly Color  RoadColorDefault               = new Color(200,  200,  200);
+        public static readonly Color  RoadColorMotorway              = new Color(209,  96,  32);
+        public static readonly Color  RoadColorPrimaryTrunk          = new Color(219, 144,  32);
+        public static readonly Color  RoadColorSecondaryTertiary     = new Color(180, 180, 180);
+        public static readonly Color  RoadColorResidential           = new Color(120, 120, 120);
+
+        public static readonly Dictionary<string,(float width,Color color)> RoadStyle = new()
+        {
+            ["motorway"]     = (1f, RoadColorMotorway),
+            ["primary"]      = (1f, RoadColorPrimaryTrunk),
+            ["trunk"]        = (1f, RoadColorPrimaryTrunk),
+            ["secondary"]    = (1f, RoadColorSecondaryTertiary),
+            ["tertiary"]     = (1f, RoadColorSecondaryTertiary),
+            ["residential"]  = (1f, RoadColorResidential),
+            ["unclassified"] = (1f, RoadColorResidential)
+        };
+
         public static readonly float RoadBaseMaxInterpolationDistance = 0.5f;
-        /// <summary>Basis-Überlappungsfaktor für Straßen (Interpolation & Rendering).</summary>
-        public static readonly float RoadBaseOverlapFactor = 0f;
-        /// <summary>Anzahl der Segmente für geglättete Straßenkurven.</summary>
-        public static readonly int RoadCurveSegments = 16;
-        /// <summary>Gibt an, ob Straßenglättung (Smoothing) verwendet werden soll.</summary>
-        public static readonly bool UseRoadSmoothing = true;
-        /// <summary>Minimaler Zoomunterschied, um eine Prüfung der Straßeninterpolation auszulösen.</summary>
-        public static readonly float RoadInterpolationZoomThreshold = 0.05f;
-        /// <summary>Zeit in Sekunden, die der Zoom stabil sein muss, bevor die Interpolation aktualisiert wird.</summary>
-        public static readonly double RoadInterpolationUpdateDebounce = 0.2;
-        /// <summary>Minimale Breite einer Straße in Pixeln (unabhängig vom Zoom).</summary>
-        public static readonly float RoadMinPixelWidth = 10f;
-        /// <summary>Pixel-Überlappung für nicht geglättete Liniensegmente im RoadRenderer.</summary>
-        public const float RoadDrawPolylineOverlap = 0.07f;
-        
+        public static readonly float RoadBaseOverlapFactor           = 0f;
+        public static readonly int   RoadCurveSegments               = 16;
+        public static readonly bool  UseRoadSmoothing                = true;
+        public static readonly float RoadInterpolationZoomThreshold  = 0.05f;
+        public static readonly double RoadInterpolationUpdateDebounce= 0.2;
+        public static readonly float RoadMinPixelWidth               = 10f;
+        public const float RoadDrawPolylineOverlap                  = 0.07f;
 
-        // Basisbreiten und Farben pro Straßentyp
-        public static readonly float RoadWidthMotorway = 1f;
-        public static readonly Color RoadColorMotorway = Color.DarkOrange;
-        public static readonly float RoadWidthPrimaryTrunk = 1f;
-        public static readonly Color RoadColorPrimaryTrunk = Color.DarkGoldenrod;
-        public static readonly float RoadWidthSecondaryTertiary = 1f;
-        public static readonly Color RoadColorSecondaryTertiary = Color.LightGray;
-        public static readonly float RoadWidthResidentialUnclassified = 1f;
-        public static readonly Color RoadColorResidentialUnclassified = Color.Gray;
-        public static readonly float RoadWidthDefault = 1f;
-        public static readonly Color RoadColorDefault = Color.Crimson;
-        
-        #endregion
+        /* =====================================================================
+         * 7)  POLYLINE‑STYLES (rivers, rails, district)
+         * ===================================================================*/
+        public static readonly Dictionary<string,(float width,Color color)> PolylineStyle = new()
+        {
+            ["river"]    = (3f, WaterBodyColor),
+            ["rail"]     = (1f, RailColor),
+            ["district"] = (3f, DistrictBorderColor)
+        };
 
-        #region District Rendering Settings
-        /// <summary>Farbe für Distriktgrenzen.</summary>
-        public static readonly Color DistrictBorderColor = new Color(143, 37, 37);
-        /// <summary>Farbe für Distriktlabels.</summary>
-        public static readonly Color DistrictLabelColor = new Color(143, 37, 37);
-        /// <summary>Pixel-Überlappung für Distrikt-Polygongrenzen.</summary>
-        public static readonly float DistrictPolygonOverlapFactor = 0.02f;
-        #endregion
-
-        #region Text Rendering Settings
-        /// <summary>Minimale Skalierung für Text.</summary>
-        public static readonly float MinTextScale = 0.1f;
-        /// <summary>Maximale Skalierung für Text.</summary>
-        public static readonly float MaxTextScale = 1.8f;
-        /// <summary>Basis-Zoomfaktor, bei dem Text seine Originalgröße hat.</summary>
-        public static readonly float BaseZoomForTextScaling = 1.0f;
-        #endregion
-
-        #region General Rendering Settings
-        /// <summary>Hintergrundfarbe der Karte.</summary>
-        public static readonly Color MapBackgroundColor = new Color(31, 31, 31);
-        /// <summary>Hintergrundfarbe für generierte Kacheln.</summary>
-        public static readonly Color TileBackgroundColor = new Color(31, 31, 31);
-        public static readonly Color WaterBodyColor = new Color(113, 153, 235); //NOTE: Blau
-        public static readonly Color RailColor = Color.Magenta; //NOTE: Grau
-        #endregion
-
-        #region Quadtree Settings
-        /// <summary>Maximale Anzahl von Elementen pro Quadtree-Knoten.</summary>
-        public static readonly int QuadtreeMaxItems = 4;
-        /// <summary>Maximale Tiefe des Quadtrees.</summary>
-        public static readonly int QuadtreeMaxDepth = 8;
-        /// <summary>Puffer (in Weltkoordinaten) um die Straßen beim Erstellen des Quadtree-Root-Knotens.</summary>
-        public static readonly float QuadtreeRoadServiceBuffer = 10f;
-        /// <summary>Puffer (in Bildschirm-Pixeln) für die Quadtree-Abfrage bei der Straßeninterpolation.</summary>
+        /* =====================================================================
+         * 8)  QUADTREE
+         * ===================================================================*/
+        public static readonly int   QuadtreeMaxItems                 = 4;
+        public static readonly int   QuadtreeMaxDepth                 = 8;
+        public static readonly float QuadtreeRoadServiceBuffer        = 10f;
         public static readonly float QuadtreeRoadServiceQueryPixelBuffer = 50f;
-        #endregion
 
-        #region Style Maps – zentral für alle Renderer
-        public static readonly Dictionary<string, (float width, Color color)> RoadStyle
-            = new()
-            {
-                ["motorway"] = (RoadWidthMotorway, RoadColorMotorway),
-                ["primary"] = (RoadWidthPrimaryTrunk, RoadColorPrimaryTrunk),
-                ["trunk"] = (RoadWidthPrimaryTrunk, RoadColorPrimaryTrunk),
-                ["secondary"] = (RoadWidthSecondaryTertiary, RoadColorSecondaryTertiary),
-                ["tertiary"] = (RoadWidthSecondaryTertiary, RoadColorSecondaryTertiary),
-                ["residential"] = (RoadWidthResidentialUnclassified, RoadColorResidentialUnclassified),
-                ["unclassified"] = (RoadWidthResidentialUnclassified, RoadColorResidentialUnclassified)
-            };
+        /* =====================================================================
+         * 9)  TEXT SCALING
+         * ===================================================================*/
+        public static readonly float MinTextScale = 0.1f;
+        public static readonly float MaxTextScale = 1.8f;
+        public static readonly float BaseZoomForTextScaling = 1.0f;
 
-        public static readonly Dictionary<string, (float width, Color color)> PolylineStyle
-            = new()
-            {
-                ["river"] = (3f, WaterBodyColor),
-                ["rail"] = (1.6f, RailColor),
-                ["district"] = (3f, DistrictBorderColor)
-            };
-
-        public static readonly Color StationColor = Color.LightGreen; // allgemeine Punktfarbe
-        #endregion
-
-        #region File Paths
-        // ... (WaterGeoJsonPath von oben) ...
-        private static readonly string basePath = AppContext.BaseDirectory;
-        public static readonly string WaterGeoJsonPath = Path.Combine(basePath, "GeoJson", "dortmund_lakes_finished.geojson");
-        public static readonly string DistrictGeoJsonPath = Path.Combine(basePath, "GeoJson", "dortmund_boundaries_census_finished.geojson");
-        public static readonly string RoadGeoJsonPath = Path.Combine(basePath, "GeoJson", "dortmund_roads_finished.geojson");
-        public static readonly string RailsGeoJsonPath = Path.Combine(basePath, "GeoJson", "dortmund_rails_finished.geojson");
-        public static readonly string RiversGeoJsonPath = Path.Combine(basePath, "GeoJson", "dortmund_rivers_finished.geojson");
-        public static readonly string StationsGeoJsonPath = Path.Combine(basePath, "GeoJson", "dortmund_stations_finished.geojson");
-        #endregion
-
-        #region Layer Visibility (run-time toggles)
-        public static bool ShowDistricts = true;
+        /* =====================================================================
+         * 10) LAYER‑VISIBILITY (zur Laufzeit togglbar)
+         * ===================================================================*/
+        public static bool ShowDistricts   = true;
         public static bool ShowWaterBodies = true;
-        public static bool ShowRails = true;
-        public static bool ShowRivers = true;
-        public static bool ShowRoads = true;
-        public static bool ShowStations = true;
+        public static bool ShowRails       = true;
+        public static bool ShowRivers      = true;
+        public static bool ShowRoads       = true;
+        public static bool ShowStations    = true;
+
+        /* =====================================================================
+         * 11)  FILE PFADS (bleiben unverändert)
+         * ===================================================================*/
+        private static readonly string BasePath = AppContext.BaseDirectory;
+        public static readonly string WaterGeoJsonPath    = System.IO.Path.Combine(BasePath, "GeoJSON", "dortmund_lakes_finished.geojson");
+        public static readonly string DistrictGeoJsonPath = System.IO.Path.Combine(BasePath, "GeoJSON", "dortmund_boundaries_census_finished.geojson");
+        public static readonly string RoadGeoJsonPath     = System.IO.Path.Combine(BasePath, "GeoJSON", "dortmund_roads_finished.geojson");
+        public static readonly string RailsGeoJsonPath    = System.IO.Path.Combine(BasePath, "GeoJSON", "dortmund_rails_finished.geojson");
+        public static readonly string RiversGeoJsonPath   = System.IO.Path.Combine(BasePath, "GeoJSON", "dortmund_rivers_finished.geojson");
+        public static readonly string StationsGeoJsonPath = System.IO.Path.Combine(BasePath, "GeoJSON", "dortmund_stations_finished.geojson");
+
+        #region Road draw hierarchy  (0 = ganz unten)
+        public static readonly Dictionary<string, int> RoadDrawOrder = new()
+        {
+            ["residential"] = 0,
+            ["unclassified"] = 0,
+
+            ["tertiary"] = 1,
+            ["secondary"] = 2,
+
+            ["trunk"] = 3,
+            ["primary"] = 3,
+
+            ["motorway"] = 4          // liegt am höchsten
+        };
+        public const int DefaultRoadDrawPriority = 0;
         #endregion
     }
 }

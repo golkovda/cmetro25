@@ -59,6 +59,14 @@ internal static class LineMeshBuilder
             else
             {
                 var miterLen = halfWidth / dot;
+                const float MITER_LIMIT = 4f;          // max = 4 × Linien­breite
+                if (miterLen > halfWidth * MITER_LIMIT)
+                {
+                    // zu lang → auf Bevel umschalten
+                    left[i] = pts[i] + nPrev * halfWidth;
+                    right[i] = pts[i] - nPrev * halfWidth;
+                    continue;
+                }
                 left[i] = pts[i] + bisec * miterLen;
                 right[i] = pts[i] - bisec * miterLen;
             }
@@ -92,5 +100,71 @@ internal static class LineMeshBuilder
             iOut.Add(i2);
             iOut.Add(i3);
         }
+
     }
+
+    public static void AddThickLineWithCaps(
+    IList<Vector2> pts, float halfW, Color col,
+    List<VertexPositionColor> v, List<int> idx)
+    {
+        AddThickLine(pts, halfW, col, v, idx);
+
+        var d0 = Vector2.Normalize(pts[1] - pts[0]);
+        var d1 = Vector2.Normalize(pts[^1] - pts[^2]);
+
+        AddRoundCap(pts[0], -d0, halfW, col, v, idx);   // Start
+        AddRoundCap(pts[^1], d1, halfW, col, v, idx);   // Ende
+    }
+
+    public static void AddSolidCircle(
+    Vector2 center, float radius, Color col,
+    List<VertexPositionColor> vOut, List<int> iOut,
+    int seg = 12)
+    {
+        int baseIdx = vOut.Count;
+        vOut.Add(new VertexPositionColor(new Vector3(center, 0), col));   // center
+
+        for (int i = 0; i <= seg; i++)
+        {
+            float a = MathF.Tau * i / seg;
+            var p = center + new Vector2(MathF.Cos(a), MathF.Sin(a)) * radius;
+            vOut.Add(new VertexPositionColor(new Vector3(p, 0), col));
+
+            if (i > 0)
+            {
+                iOut.Add(baseIdx);          // Fan-Dreieck
+                iOut.Add(baseIdx + i);
+                iOut.Add(baseIdx + i + 1);
+            }
+        }
+    }
+
+    public static void AddRoundCap(
+    Vector2 center, Vector2 dir,   // dir = Tangente (normalisiert!)
+    float r, Color col,
+    List<VertexPositionColor> v, List<int> idx,
+    int seg = 12)                  // 12 ≈ 15°-Schritte ⇒ schöne Kuppel
+    {
+        // ► lokales Achsen­system
+        var n = new Vector2(-dir.Y, dir.X);        // Normal nach links
+
+        int baseIdx = v.Count;
+        v.Add(new VertexPositionColor(new Vector3(center, 0), col));   // Mittelpunkt
+
+        // Winkel −90° … +90°  um die Normale ⇒ exakte Halb­scheibe
+        for (int i = 0; i <= seg; i++)
+        {
+            float a = (-0.5f + i / (float)seg) * MathF.PI;   // −π/2 .. +π/2
+            var off = n * MathF.Cos(a) + dir * MathF.Sin(a);
+            v.Add(new VertexPositionColor(new Vector3(center + off * r, 0), col));
+
+            if (i > 0)
+            {
+                idx.Add(baseIdx);          // Fan-Dreieck
+                idx.Add(baseIdx + i);
+                idx.Add(baseIdx + i + 1);
+            }
+        }
+    }
+
 }
