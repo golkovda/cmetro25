@@ -104,16 +104,25 @@ internal static class LineMeshBuilder
     }
 
     public static void AddThickLineWithCaps(
-    IList<Vector2> pts, float halfW, Color col,
-    List<VertexPositionColor> v, List<int> idx)
+     IList<Vector2> pts, float r, Color col,
+     bool startCap, bool endCap,
+     List<VertexPositionColor> v, List<int> idx)
     {
-        AddThickLine(pts, halfW, col, v, idx);
+        if (pts.Count < 2) return;
 
         var d0 = Vector2.Normalize(pts[1] - pts[0]);
         var d1 = Vector2.Normalize(pts[^1] - pts[^2]);
 
-        AddRoundCap(pts[0], -d0, halfW, col, v, idx);   // Start
-        AddRoundCap(pts[^1], d1, halfW, col, v, idx);   // Ende
+        // ► Kopie evtl. einkürzen
+        var tmp = new Vector2[pts.Count];
+        pts.CopyTo(tmp, 0);
+        if (startCap) tmp[0] += d0 * r;
+        if (endCap) tmp[^1] -= d1 * r;
+
+        AddThickLine(tmp, r, col, v, idx);
+
+        if (startCap) AddRoundCap(tmp[0], -d0, r, col, v, idx);
+        if (endCap) AddRoundCap(tmp[^1], d1, r, col, v, idx);
     }
 
     public static void AddSolidCircle(
@@ -140,22 +149,20 @@ internal static class LineMeshBuilder
     }
 
     public static void AddRoundCap(
-    Vector2 center, Vector2 dir,   // dir = Tangente (normalisiert!)
-    float r, Color col,
+    Vector2 center, Vector2 dir, float r, Color col,
     List<VertexPositionColor> v, List<int> idx,
-    int seg = 12)                  // 12 ≈ 15°-Schritte ⇒ schöne Kuppel
+    int seg = 12)          // 12 ≈ 15°-Schritte ⇒ glatte Halb­kappe
     {
-        // ► lokales Achsen­system
-        var n = new Vector2(-dir.Y, dir.X);        // Normal nach links
+        dir = Vector2.Normalize(dir);
+        var n = new Vector2(-dir.Y, dir.X);   // linke Normalen­richtung
 
         int baseIdx = v.Count;
-        v.Add(new VertexPositionColor(new Vector3(center, 0), col));   // Mittelpunkt
+        v.Add(new VertexPositionColor(new Vector3(center, 0), col));    // Mittelpunkt
 
-        // Winkel −90° … +90°  um die Normale ⇒ exakte Halb­scheibe
         for (int i = 0; i <= seg; i++)
         {
-            float a = (-0.5f + i / (float)seg) * MathF.PI;   // −π/2 .. +π/2
-            var off = n * MathF.Cos(a) + dir * MathF.Sin(a);
+            float a = (-MathF.PI * 0.5f) + i * (MathF.PI / seg);        // −π/2 … +π/2
+            var off = dir * MathF.Cos(a) + n * MathF.Sin(a);            // **TAUSCH**
             v.Add(new VertexPositionColor(new Vector3(center + off * r, 0), col));
 
             if (i > 0)

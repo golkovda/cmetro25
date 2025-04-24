@@ -385,7 +385,50 @@ namespace cmetro25.Services
                     }
                 }
             }
+
+            ClusterEndNodes(roads);
+
             return roads;
+        }
+
+        private static void ClusterEndNodes(List<Road> roads)
+        {
+            // -----------------------------------------------------------------
+            //  End-Knoten clustern  (einmalig, global)
+            // -----------------------------------------------------------------
+            const float tol = 0.8f;                     // Welt-Einheit (≈ 0.8 m)
+
+            Point Key(Vector2 p) =>
+                new((int)MathF.Round(p.X / tol),
+                    (int)MathF.Round(p.Y / tol));
+
+            var nodeCounter = new Dictionary<Point, int>();
+
+            // 1)  zählen
+            foreach (var rd in roads)
+            foreach (var line in rd.OriginalLines)
+            {
+                if (line.Count == 0) continue;
+
+                foreach (var pt in line)           // alle Punkte!
+                {
+                    var k = Key(pt);
+                    nodeCounter[k] = nodeCounter.TryGetValue(k, out var c) ? c + 1 : 1;
+                }
+            }
+
+            // 2)  Flag pro(!) End-Knoten setzen
+            foreach (var rd in roads)
+            foreach (var line in rd.OriginalLines)
+            {
+                if (line.Count == 0) continue;
+
+                rd.FreeStart ??= new();            // Liste pro Road anlegen
+                rd.FreeEnd ??= new();
+
+                rd.FreeStart.Add(nodeCounter[Key(line[0])] == 1);
+                rd.FreeEnd.Add(nodeCounter[Key(line[^1])] == 1);
+            }
         }
 
         /// <summary>

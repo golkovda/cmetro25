@@ -139,15 +139,16 @@ namespace cmetro25.Core
         public static readonly double RoadInterpolationUpdateDebounce= 0.2;
         public static readonly float RoadMinPixelWidth               = 10f;
         public const float RoadDrawPolylineOverlap                  = 0.07f;
+        public static float NodeMergeToleranceWorld = 0.8f;
 
         /* =====================================================================
          * 7)  POLYLINE‑STYLES (rivers, rails, district)
          * ===================================================================*/
         public static readonly Dictionary<string,(float width,Color color)> PolylineStyle = new()
         {
-            ["river"]    = (3f, WaterBodyColor),
+            ["river"]    = (2f, WaterBodyColor),
             ["rail"]     = (1f, RailColor),
-            ["district"] = (3f, DistrictBorderColor)
+            ["district"] = (2f, DistrictBorderColor)
         };
 
         /* =====================================================================

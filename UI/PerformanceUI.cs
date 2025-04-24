@@ -32,10 +32,12 @@ namespace cmetro25.UI
 
             /* ---------- Slider-Definitions ---------- */
             int x = 20, y = 230, w = 180, h = 4, gap = 40;
-            void AddSlider(string key, string label)
+            void AddSlider(string key, string label, float start = -1, float min = -1, float max = -1)
             {
-                float start = GameSettings.RoadTargetPx.TryGetValue(key, out var v) ? v : 1f;
-                _sliders.Add(new Slider(label, 1f, 5f, start,
+                if (start < 0) start = GameSettings.RoadTargetPx.TryGetValue(key, out var v) ? v : 1f;
+                if (min < 0) min = 1f;
+                if (max < 0) max = 5f;
+                _sliders.Add(new Slider(label, min, max, start,
                                new Rectangle(x, y + _sliders.Count * gap, w, h), _px));
             }
             AddSlider("motorway", "Motorway");
@@ -45,6 +47,7 @@ namespace cmetro25.UI
             AddSlider("tertiary", "Tertiary");
             AddSlider("residential", "Residential");
             AddSlider("unclassified", "Unclassified");
+            AddSlider("seng_tolerance", "StartEndNodeGenerationTolerance",GameSettings.NodeMergeToleranceWorld, 0.01f, 10f);
 
             /* ---------- Layer-Toggles ---------- */
             int tx = 250, ty = 230, tGap = 30, b = 18;
@@ -87,8 +90,11 @@ namespace cmetro25.UI
                     anyToggle = true;
 
             if (anySlider)
+            {
                 foreach (var s in _sliders)
                     GameSettings.RoadTargetPx[s.Label.ToLower()] = s.Value;
+                GameSettings.NodeMergeToleranceWorld = _sliders[^1].Value;
+            }
 
 
             // Toggle-Werte direkt in GameSettings flags zurückschreiben

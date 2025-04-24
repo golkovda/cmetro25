@@ -24,6 +24,8 @@ namespace cmetro25.Models
 
         public List<List<Vector2>> CachedSmoothedLines { get; set; } = [];
         public float CachedSmoothZoom { get; set; } = -1f;
+        public List<bool> FreeStart { get; set; }    // je Segment
+        public List<bool> FreeEnd { get; set; }
 
     }
 }
