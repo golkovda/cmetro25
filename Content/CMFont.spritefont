@@ -60,6 +60,10 @@ with.
         <Start>&#128;</Start>
         <End>&#255;</End>
       </CharacterRegion>
+		<CharacterRegion>
+            <Start>&#8208;</Start>   <!-- U+2010 Hyphen -->
+            <End>&#8213;</End>      <!-- U+2015 Horizontal Bar, o. ä. -->
+        </CharacterRegion>
     </CharacterRegions>
   </Asset>
 </XnaContent>

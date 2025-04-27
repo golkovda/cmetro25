@@ -9,7 +9,7 @@ namespace cmetro25.UI;
 public sealed class Toggle
 {
     public string Label { get; }
-    public bool Value { get; private set; }
+    public bool Value { get; set; }
 
     private readonly Rectangle _box;
     private readonly Texture2D _px;
