@@ -16,6 +16,7 @@ using cmetro25.Utils;
 using cmetro25.Core;
 using System.Collections.Concurrent;
 using System.Reflection;
+using cmetro25.Utils.Manager;
 using Newtonsoft.Json; // Sicherstellen, dass dies vorhanden ist
 
 namespace cmetro25.Core
@@ -73,6 +74,8 @@ namespace cmetro25.Core
 
         private string _versionText;
 
+        private StationManager? _stationManager; // NEU: StationManager für die Verwaltung von Stationen
+
 
         /// <summary>
         /// Initialisiert eine neue Instanz der CMetro-Klasse.
@@ -120,6 +123,18 @@ namespace cmetro25.Core
 
             // NEU: Starte den asynchronen Ladevorgang
             StartLoadingMapData();
+
+            var texBtnStation = Content.Load<Texture2D>("Haltestelle_gray");
+            var texBtnStationAct = Content.Load<Texture2D>("Haltestelle");
+            var texBtnBus = Content.Load<Texture2D>("Bus_gray");
+            var texBtnBusAct = Content.Load<Texture2D>("Bus");
+            var texBtnTram = Content.Load<Texture2D>("Strab_gray");
+            var texBtnTramAct = Content.Load<Texture2D>("Strab");
+            var texBtnMetro = Content.Load<Texture2D>("Stadtbahn_gray_round");
+            var texBtnMetroAct = Content.Load<Texture2D>("Stadtbahn_round");
+
+            _stationManager = new StationManager(_camera, null, texBtnStation, texBtnStationAct,
+                texBtnBus, texBtnBusAct, texBtnTram, texBtnTramAct, texBtnMetro, texBtnMetroAct, _font, _spriteBatch, _pixelTexture, GraphicsDevice);
 
             // LoadContent()  – am Ende der Methode
             var asm = typeof(CMetro).Assembly;
@@ -271,6 +286,8 @@ namespace cmetro25.Core
                 Debug.WriteLine(_loadingError);
                 _mapDataReady = false;
             }
+
+            _stationManager.SetRoadService(_roadService);
         }
 
         /// <summary>
@@ -342,6 +359,8 @@ namespace cmetro25.Core
                 _tileManager.ClearCache();
                 RequestTilesForCurrentView();
             }
+
+            _stationManager?.Update(gameTime);
 
             base.Update(gameTime);
         }
@@ -507,6 +526,8 @@ namespace cmetro25.Core
                         _tileManager?.LastDrawnTileCount ?? 0,
                         GC.GetTotalMemory(false) / (1024 * 1024));
             }
+
+            _stationManager?.Draw();
 
             DrawVersion();
 
