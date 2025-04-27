@@ -14,7 +14,9 @@ using cmetro25.UI;
 using cmetro25.Views;
 using cmetro25.Utils;
 using cmetro25.Core;
-using System.Collections.Concurrent; // Sicherstellen, dass dies vorhanden ist
+using System.Collections.Concurrent;
+using System.Reflection;
+using Newtonsoft.Json; // Sicherstellen, dass dies vorhanden ist
 
 namespace cmetro25.Core
 {
@@ -38,6 +40,7 @@ namespace cmetro25.Core
         private MapLoader _mapLoader;
         private RoadService _roadService;
         private TileManager _tileManager;
+        private PolygonRenderer _polygonRenderer;
 
         // --- UI & Grundlegende Komponenten ---
         private PerformanceUI _performanceUI;
@@ -67,6 +70,9 @@ namespace cmetro25.Core
         // NEU: Für Kamera-Bewegungserkennung -> Tile-Anforderung
         private Vector2 _lastCameraPositionForTileRequest;
         private float _lastCameraZoomForTileRequest;
+
+        private string _versionText;
+
 
         /// <summary>
         /// Initialisiert eine neue Instanz der CMetro-Klasse.
@@ -114,6 +120,18 @@ namespace cmetro25.Core
 
             // NEU: Starte den asynchronen Ladevorgang
             StartLoadingMapData();
+
+            // LoadContent()  – am Ende der Methode
+            var asm = typeof(CMetro).Assembly;
+            var info = asm.GetCustomAttribute<AssemblyInformationalVersionAttribute>();
+            var versiontext = info?.InformationalVersion ??
+                              asm.GetName().Version?.ToString();
+            if (versiontext != null)
+                _versionText = "v" + versiontext;
+            else
+                _versionText = "<versionfile missing>";
+
+
         }
 
         /// <summary>
@@ -225,7 +243,7 @@ namespace cmetro25.Core
                 var sw = Stopwatch.StartNew();
 
                 // *** neue Renderer ***
-                var polygonRenderer = new PolygonRenderer(GraphicsDevice, _pixelTexture, _font);
+                _polygonRenderer = new PolygonRenderer(GraphicsDevice, _pixelTexture, _font);
                 var pointRenderer = new PointRenderer(_pixelTexture);
 
                 _mapLoader.SetCamera(_camera);
@@ -234,7 +252,7 @@ namespace cmetro25.Core
                 _tileManager = new TileManager(GraphicsDevice,
                                                _districts, _waterBodies,
                                                _roadService, _mapLoader,
-                                               polygonRenderer, pointRenderer,
+                                               _polygonRenderer, pointRenderer,
                                                GameSettings.TileSize,
                                                _rivers, _rails, _stations, _camera);
 
@@ -476,6 +494,11 @@ namespace cmetro25.Core
             _tileManager.DrawTiles(_spriteBatch, _camera, tileZoomLevel);
             _spriteBatch.End();
 
+            _polygonRenderer.DrawDistrictLabels(_spriteBatch,
+                                    _districts,
+                                    _camera,
+                                    Mouse.GetState());
+
             // --- UI / Performance ---
             if (_showPerformanceMenu)
             {
@@ -485,7 +508,20 @@ namespace cmetro25.Core
                         GC.GetTotalMemory(false) / (1024 * 1024));
             }
 
+            DrawVersion();
+
             base.Draw(gameTime);
+            
+        }
+
+        private void DrawVersion()
+        {
+            _spriteBatch.Begin();
+            var size = _font.MeasureString(_versionText);
+            _spriteBatch.DrawString(_font, _versionText,
+                new Vector2(10, _graphics.PreferredBackBufferHeight - size.Y - 10),
+                Color.White * 0.6f);          // 60 % Opazität
+            _spriteBatch.End();
         }
 
         /// <summary>

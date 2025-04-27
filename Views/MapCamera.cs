@@ -1,4 +1,5 @@
-﻿using cmetro25.Core;
+﻿using System;
+using cmetro25.Core;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Input;
 using MonoGame.Extended;
@@ -17,6 +18,9 @@ namespace cmetro25.Views
         private readonly int _viewportWidth;
         private readonly int _viewportHeight;
         private int _previousScrollWheelValue;
+
+        private float _targetZoom;          // gewünschter End-Zoom
+        private float _zoomVelocity;        // aktuelle „Geschwindigkeit“
 
         // --- NEU: Private Felder für separate Matrizen ---
         private Matrix _viewMatrix;
@@ -73,7 +77,7 @@ namespace cmetro25.Views
         public MapCamera(int viewportWidth, int viewportHeight)
         {
             _position = Vector2.Zero;
-            _zoom = 1.0f;
+            _zoom = _targetZoom = 1.0f;   
             _viewportWidth = viewportWidth;
             _viewportHeight = viewportHeight;
             UpdateTransformMatrix();
@@ -87,6 +91,22 @@ namespace cmetro25.Views
         public void Update(GameTime gameTime)
         {
             HandleInput();
+
+            /* ---------- sanft zum Zielzo o m gleiten ---------- */
+            float dt = (float)gameTime.ElapsedGameTime.TotalSeconds;
+            const float accel = 20f;          // „Beschleunigung“  (größer = knackiger)
+            const float damping = 12f;        // „Bremsung“        (größer = weniger Nachschwingen)
+
+            // F =  a·(Ziel − Ist)  –  einfache Feder-Dämpfer-Annäherung
+            float force = accel * (_targetZoom - _zoom) - damping * _zoomVelocity;
+            _zoomVelocity += force * dt;
+            _zoom += _zoomVelocity * dt * 2;
+
+            // Clamp & Recalc-Matrix nur wenn sich wirklich etwas geändert hat
+            if (Math.Abs(_zoom - _targetZoom) > 0.0001f)
+                _zoom = MathHelper.Clamp(_zoom, GameSettings.CameraZoomMin, GameSettings.CameraZoomMax);
+
+            UpdateTransformMatrix();
         }
 
         /// <summary>
@@ -95,13 +115,16 @@ namespace cmetro25.Views
         private void HandleInput()
         {
             MouseState mouseState = Mouse.GetState();
-            KeyboardState keyboardState = Keyboard.GetState();
+            KeyboardState keyboardState = Keyboard.GetState(); 
+            int delta = mouseState.ScrollWheelValue - _previousScrollWheelValue;
 
-            int scrollDelta = mouseState.ScrollWheelValue - _previousScrollWheelValue;
-            if (scrollDelta > 0)
-                Zoom *= GameSettings.CameraZoomStepFactor;
-            else if (scrollDelta < 0)
-                Zoom /= GameSettings.CameraZoomStepFactor;
+            if (delta != 0)
+            {
+                float step = MathF.Pow(GameSettings.CameraZoomStepFactor, delta / 120f); // 120 = 1 Mausschritt
+                _targetZoom = MathHelper.Clamp(_targetZoom * step,
+                                               GameSettings.CameraZoomMin,
+                                               GameSettings.CameraZoomMax);
+            }
             _previousScrollWheelValue = mouseState.ScrollWheelValue;
 
             if (mouseState.MiddleButton == ButtonState.Pressed || (mouseState.LeftButton == ButtonState.Pressed && keyboardState.IsKeyDown(Keys.LeftShift)))

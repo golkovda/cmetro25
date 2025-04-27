@@ -170,12 +170,25 @@ namespace cmetro25.Utils
                         LineMeshBuilder.AddThickLine(seg, halfW, style.color,
                                                      res.FillVerts, res.FillIndices);
 
-                        LineMeshBuilder.AddSolidCircle(seg[0], halfW, Color.Cyan,
-                                                           res.FillVerts, res.FillIndices);
+                        bool debugmode = true;
+                        if (debugmode)
+                        {
+                            LineMeshBuilder.AddSolidCircle(seg[0], halfW, Color.Cyan,
+                                res.FillVerts, res.FillIndices);
+
+                            if (addEnd)
+                                LineMeshBuilder.AddSolidCircle(seg[^1], halfW, Color.SandyBrown,
+                                    res.FillVerts, res.FillIndices);
+                        }
+                        else
+                        {
+                            LineMeshBuilder.AddSolidCircle(seg[0], halfW, style.color,
+                                                    res.FillVerts, res.FillIndices);
 
                         if (addEnd)
-                            LineMeshBuilder.AddSolidCircle(seg[^1], halfW, Color.SandyBrown,
-                                                           res.FillVerts, res.FillIndices);
+                            LineMeshBuilder.AddSolidCircle(seg[^1], halfW, style.color,
+                                                    res.FillVerts, res.FillIndices);
+                        }
                 }
             }
         }

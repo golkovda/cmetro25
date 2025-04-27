@@ -163,7 +163,7 @@ namespace cmetro25.Core
          * 9)  TEXT SCALING
          * ===================================================================*/
         public static readonly float MinTextScale = 0.1f;
-        public static readonly float MaxTextScale = 1.8f;
+        public static readonly float MaxTextScale = 1.0f;
         public static readonly float BaseZoomForTextScaling = 1.0f;
 
         /* =====================================================================

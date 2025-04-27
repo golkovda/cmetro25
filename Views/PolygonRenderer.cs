@@ -10,6 +10,7 @@ using cmetro25.Core;
 using cmetro25.Models;
 using cmetro25.Utils;
 using cmetro25.Views;
+using Microsoft.Xna.Framework.Input;
 
 namespace cmetro25.Views
 {
@@ -151,6 +152,56 @@ namespace cmetro25.Views
                         new Vector2(dist, thick),
                         SpriteEffects.None, 0f);
             }
+        }
+
+        public void DrawDistrictLabels(SpriteBatch sb,
+                               List<District> dists,
+                               MapCamera cam,
+                               MouseState ms)
+        {
+            if (!GameSettings.ShowDistricts || dists == null) return;
+
+            float zoom = cam.Zoom;
+            float txtScale = TextUtils.CalculateTextScale(
+                                 zoom,
+                                 GameSettings.BaseZoomForTextScaling,
+                                 GameSettings.MinTextScale,
+                                 GameSettings.MaxTextScale);
+
+            if (txtScale <= GameSettings.MinTextScale) return;   // zu weit rausgezoomt
+
+            /* ---------- SpriteBatch im Welt-Raum ---------- */
+            sb.Begin(transformMatrix: cam.TransformMatrix,
+                     samplerState: SamplerState.AnisotropicClamp);
+
+            foreach (var d in dists)
+            {
+                /* Sichtbarkeit: BoundingBox vs. Kamera-View */
+                if (!cam.BoundingRectangle.Intersects(d.BoundingBox))
+                    continue;
+
+                string txt = d.Name ?? "";
+                Vector2 posW = d.TextPosition;                     // Welt-Koordinate
+                Vector2 posS = cam.WorldToScreen(posW);            // Screen-Koordinate
+                Vector2 size = _font.MeasureString(txt) * txtScale;
+
+                /* Hover-Test im Screen-Space */
+                var txtRect = new Rectangle(
+                    (int)(posS.X - size.X * 0.5f),
+                    (int)(posS.Y - size.Y * 0.5f),
+                    (int)size.X, (int)size.Y);
+
+                bool hover = txtRect.Contains(ms.Position);
+
+                Color col = GameSettings.DistrictLabelColor *
+                            (hover ? 1.0f : 0.4f);                 // 40 % → 100 %
+
+                sb.DrawString(_font, txt, posW, col,
+                              0f, _font.MeasureString(txt) * 0.5f,
+                              txtScale, SpriteEffects.None, 0f);
+            }
+
+            sb.End();
         }
     }
 }
